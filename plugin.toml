@@ -1,0 +1,20 @@
+name = "AsyncWorldEdit"
+main = "asyncworldedit\\Main"
+src-namespace-prefix = "asyncworldedit"
+version = "0.1.0"
+api = "6.0.0"
+description = "Chunk-oriented world editing for Quark 6"
+author = "TrixNEW"
+
+[permissions.asyncworldedit.selection]
+default = "op"
+[permissions.asyncworldedit.edit]
+default = "op"
+[permissions.asyncworldedit.clipboard]
+default = "op"
+[permissions.asyncworldedit.history]
+default = "op"
+[permissions.asyncworldedit.schematic]
+default = "op"
+[permissions.asyncworldedit.brush]
+default = "op"

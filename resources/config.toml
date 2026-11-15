@@ -1,0 +1,9 @@
+maxBlocks = 2000000
+maxJobs = 16
+budgetMicros = 2000
+blocksPerTick = 2048
+historyBytes = 67108864
+historyEntries = 15
+clipboardBlocks = 500000
+workers = 1
+clipboardBytes = 67108864

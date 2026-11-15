@@ -1,0 +1,9 @@
+parameters:
+	level: 8
+	paths:
+		- src
+	bootstrapFiles:
+		- tools/phpstan-bootstrap.php
+	tmpDir: .phpstan-cache
+	treatPhpDocTypesAsCertain: false
+	rememberPossiblyImpureFunctionValues: false

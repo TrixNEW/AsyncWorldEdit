@@ -1,0 +1,7 @@
+name = "AsyncWorldEditIntegration"
+main = "aweintegration\\Integration"
+src-namespace-prefix = "aweintegration"
+version = "1.0.0"
+api = "6.0.0"
+depend = ["AsyncWorldEdit"]
+
