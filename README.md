@@ -36,8 +36,6 @@ Selectors: cuboid, ellipsoid and cylinder. Patterns support weights and `#existi
 - Sponge `.schem` v2/v3 imports accept states Quark can resolve exactly. General Java block and block-entity conversion is unsupported. Bedrock `.mcstructure` supports import/export; an optional `asyncworldedit_origin` extension preserves the clipboard pivot.
 - Inventories, secondary fluid layers, legacy `.schematic`, biome/entity transfer and block-entity transforms are unsupported. Unsupported data fails explicitly.
 
-This **0.1.0** release has incomplete FAWE coverage. Multiplayer desync testing and crash recovery remain unverified. See [runtime guarantees](docs/architecture.md) and [validation results](docs/validation.md).
-
 The native million-block test completed in **108.6 s** with a 10 ms budget and no connected players; its final rolling TPS average was 20.0.
 
 ## Development
