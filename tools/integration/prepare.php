@@ -36,13 +36,19 @@ package($root, $runtime . "/plugins/AsyncWorldEdit.phar", ["src", "resources", "
 package(__DIR__, $runtime . "/plugins/Integration.phar", ["src", "plugin.toml"]);
 $quark = getenv("QUARK_SOURCE") ?: dirname($root) . "/Quark";
 $configuration = file_get_contents($quark . "/resources/server.toml");
-$configuration = str_replace([
-	"server-ip = ''", "server-port = 19132", "enable-ipv6 = true", "enable-query = true",
-	"level-type = 'DEFAULT'", "view-distance = 16", "enable-dev-builds = false", "async-workers = 'auto'", "name = 'nethernet'", "level-name = 'world'"
-], [
-	"server-ip = '127.0.0.1'", "server-port = 19481", "enable-ipv6 = false", "enable-query = false",
-	"level-type = 'FLAT'", "view-distance = 4", "enable-dev-builds = true", "async-workers = 2", "name = 'raknet'", "level-name = 'awe-" . bin2hex(random_bytes(4)) . "'"
-], $configuration);
+$replacements = [
+	"bind-address = ''" => "bind-address = '127.0.0.1'", "port = 19132" => "port = 19481", "enable-ipv6 = true" => "enable-ipv6 = false",
+	"enable-query = true" => "enable-query = false", "generator = 'DEFAULT'" => "generator = 'FLAT'", "view-distance = 16" => "view-distance = 4",
+	"enable-dev-builds = false" => "enable-dev-builds = true", "async-workers = 'auto'" => "async-workers = 2", "name = 'nethernet'" => "name = 'raknet'",
+	"name = 'world'" => "name = 'awe-" . bin2hex(random_bytes(4)) . "'"
+];
+foreach($replacements as $search => $replace){
+	// Fail loudly when Quark renames a key, otherwise the run silently uses a default world.
+	if(substr_count($configuration, $search) !== 1){
+		throw new RuntimeException("Quark server.toml no longer contains exactly one \"$search\"");
+	}
+	$configuration = str_replace($search, $replace, $configuration);
+}
 file_put_contents($runtime . "/data/config/server.toml", $configuration);
 $pluginData = $runtime . "/data/data/plugins/AsyncWorldEdit";
 if(!is_dir($pluginData)){
