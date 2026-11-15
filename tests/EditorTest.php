@@ -97,4 +97,14 @@ final class EditorTest extends TestCase{
 		$undo = $editor->restore('a',$second); $this->settle($editor,$undo);
 		self::assertSame(0,$second->read(0,0,0)->state);
 	}
+
+	public function testApiCoordinatesCannotWrapHistoryStorage() : void{
+		$world = new MemoryWorld(); $editor = $this->editor();
+		$steps = (static function() : \Generator{ yield [4294967296,0,0,new BlockValue(1),null]; })();
+		$job = $editor->submit('api',$world,$steps,1);
+		$editor->tick();
+		self::assertSame('failed',$job->status);
+		self::assertSame(0,$job->changed);
+		self::assertSame([],$world->blocks);
+	}
 }

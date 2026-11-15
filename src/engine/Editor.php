@@ -123,8 +123,8 @@ final class Editor{
 				$step = $steps->current();
 				if($step !== null){
 					[$x, $y, $z, $value, $expected] = $step;
-					if($y < $job->world->minY() || $y >= $job->world->maxY()){
-						throw new \OutOfBoundsException('Edit exceeds world height');
+					if(abs($x) > 30000000 || abs($z) > 30000000 || $y < $job->world->minY() || $y >= $job->world->maxY()){
+						throw new \OutOfBoundsException('Edit exceeds supported world bounds');
 					}
 					$job->world->acquire($x >> 4, $z >> 4);
 					$current = $job->world->read($x, $y, $z);

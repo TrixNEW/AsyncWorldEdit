@@ -17,6 +17,9 @@ final class ChangeSet{
 	public function __construct(public readonly string $worldId){}
 
 	public function append(int $x, int $y, int $z, BlockValue $before, BlockValue $after) : void{
+		if($x < -2147483648 || $x > 2147483647 || $y < -2147483648 || $y > 2147483647 || $z < -2147483648 || $z > 2147483647){
+			throw new \OutOfBoundsException('History coordinates exceed signed 32-bit storage');
+		}
 		$index = $this->count();
 		if(strlen($this->records) >= 81920){
 			$compressed = gzdeflate($this->records, 1);
