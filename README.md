@@ -1,6 +1,6 @@
 # AsyncWorldEdit
 
-World editing for **Quark 6 / PHP 8.4**. Chunk-ordered edits run within a configurable tick budget; schematic I/O uses dedicated workers. Includes selection wands and particle outlines.
+World editing for **Quark 6 / PHP 8.4**. Chunk-ordered edits run within a configurable tick budget; schematic I/O uses dedicated workers. Includes selection wands and particle outlines. Scheduling stops when idle.
 
 ## Install
 
@@ -34,4 +34,4 @@ Selectors: cuboid, ellipsoid and cylinder. Patterns support weights and `#existi
 
 - Edits require loaded, populated chunks. Overlapping operations reject; cancellation retains partial undo history. History is held in memory and ends on disconnect or restart.
 - Sponge `.schem` v2/v3 imports accept states Quark can resolve exactly. General Java block and block-entity conversion is unsupported. Bedrock `.mcstructure` supports import/export; an optional `asyncworldedit_origin` extension preserves the clipboard pivot.
-- Inventories, secondary fluid layers, legacy `.schematic`, biome/entity transfer and block-entity transforms are unsupported. Unsupported data fails explicitly.
+- Inventories, item-bearing tiles, pistons, secondary fluid layers, legacy `.schematic`, biome/entity transfer and block-entity transforms are unsupported. Unsupported data fails explicitly.

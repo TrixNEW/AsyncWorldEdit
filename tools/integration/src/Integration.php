@@ -136,6 +136,15 @@ final class Integration extends PluginBase{
 		$arguments = $command->getSyntaxes()[0]->getArguments();
 		$this->check(count($arguments) === 1 && $arguments[0] instanceof MappedArgument, "Set command uses a typed pattern argument");
 		$this->check($this->target->getDescription()->getCompatibleApis() === ["6.0.0"], "Manifest declares Quark API 6");
+		foreach(['editTask','workerTask','outlineTask'] as $property){
+			$this->check((new \ReflectionProperty(Main::class,$property))->getValue($this->target) === null, 'Idle plugin has no ' . $property);
+		}
+		$service = (new \ReflectionProperty(Main::class,'schematics'))->getValue($this->target);
+		$workerError = null;
+		$service->load('missing-audit-file.schem',static function(?SchematicData $data,?string $error) use (&$workerError) : void{ $workerError = $error; });
+		$this->check((new \ReflectionProperty(Main::class,'workerTask'))->getValue($this->target) !== null, 'Pending schematic request wakes its watchdog');
+		yield static function() use (&$workerError) : bool{ return $workerError !== null; };
+		$this->check((new \ReflectionProperty(Main::class,'workerTask'))->getValue($this->target) === null && !$service->hasPending(), 'Schematic completion stops its watchdog');
 
 		$pending = 0;
 		$populationError = null;
@@ -254,13 +263,15 @@ final class Integration extends PluginBase{
 				$start = hrtime(true);
 				$job = $this->fill($box, $asyncName, "benchmark");
 				yield $this->await($job);
+				$elapsed = hrtime(true) - $start;
+				$processCpu = $this->cpuNanos() - $cpuStart;
 				$this->sampling = false;
 				$this->check($job->changed === $box->volume(), "Benchmark " . $box->volume() . " repeat " . ($repeat + 1) . " changes all cells");
 				$samples = $this->tickSamples;
 				$this->benchmarks[] = [
 					"blocks" => $box->volume(), "repeat" => $repeat + 1, "ordinary_set_ns" => $baseline,
-					"ordinary_process_cpu_ns" => $baselineCpu, "scheduled_process_cpu_ns" => $this->cpuNanos() - $cpuStart,
-					"scheduled_wall_ns" => hrtime(true) - $start, "editor_total_ns" => array_sum($samples),
+					"ordinary_process_cpu_ns" => $baselineCpu, "scheduled_process_cpu_ns" => $processCpu,
+					"scheduled_wall_ns" => $elapsed, "editor_total_ns" => array_sum($samples),
 					"editor_max_tick_ns" => $samples === [] ? 0 : max($samples), "editor_ticks" => count($samples),
 					"tps_average" => $this->getServer()->getTicksPerSecondAverage(), "php_peak_bytes" => memory_get_peak_usage(true)
 				];
@@ -308,6 +319,27 @@ final class Integration extends PluginBase{
 		$undo = $this->editor->restore("integration", $this->access);
 		yield $this->await($undo);
 		$this->check($this->snapshot($region) === $before, "Sign state and normalized NBT round-trip exactly through undo");
+		$this->world->setBlockAt(7, 140, 7, VanillaBlocks::NOTE_BLOCK()->setPitch(17));
+		$this->access->acquire(0, 0);
+		$note = $this->access->read(7, 140, 7);
+		$this->world->setBlockAt(7, 140, 7, VanillaBlocks::AIR());
+		$listener = new class($this->world) implements \quark\world\ChunkListener{
+			public function __construct(private World $world){}
+			public function onBlockChanged(int $x, int $y, int $z) : void{ $this->world->getBlockAt($x, $y, $z); }
+			public function onChunkChanged(int $x, int $z, \quark\world\format\Chunk $chunk) : void{}
+			public function onChunkLoaded(int $x, int $z, \quark\world\format\Chunk $chunk) : void{}
+			public function onChunkUnloaded(int $x, int $z, \quark\world\format\Chunk $chunk) : void{}
+			public function onChunkPopulated(int $x, int $z, \quark\world\format\Chunk $chunk) : void{}
+		};
+		$this->world->registerChunkListener($listener, 0, 0);
+		try{
+			$this->access->write(7, 140, 7, $note);
+			$restoredNote = $this->world->getBlockAt(7, 140, 7);
+			$this->check($restoredNote instanceof \quark\block\Note && $restoredNote->getPitch() === 17, 'Restored tile data refreshes blocks cached by chunk listeners');
+		}finally{
+			$this->world->unregisterChunkListener($listener, 0, 0);
+			$this->access->release();
+		}
 		$this->world->setBlockAt(3, 140, 3, VanillaBlocks::CHEST());
 		$this->access->acquire(0, 0);
 		$rejected = false;
