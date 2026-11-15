@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\nbt\tag\IntArrayTag;
 use pocketmine\nbt\tag\IntTag;
+use pocketmine\nbt\tag\Tag;
 
 final readonly class SchematicData{
 
@@ -75,34 +76,57 @@ final readonly class SchematicData{
 
 	/** @return array{min:array{int,int,int},origin:array{int,int,int}} */
 	public function placement() : array{
+		if($this->format !== 'sponge' && $this->format !== 'mcstructure'){
+			throw new InvalidArgumentException('Unsupported schematic data format');
+		}
 		if($this->format === 'mcstructure'){
 			$tag = $this->metadata?->getTag('ClipboardOrigin');
 			return ['min' => $this->origin, 'origin' => $tag === null ? $this->origin : self::point($tag)];
+		}
+		if($this->formatVersion !== 2 && $this->formatVersion !== 3){
+			throw new InvalidArgumentException('Unsupported Sponge schematic version');
 		}
 		if($this->formatVersion === 2){
 			$offset = [];
 			foreach(['WEOffsetX', 'WEOffsetY', 'WEOffsetZ'] as $key){
 				$tag = $this->metadata?->getTag($key);
-				if($tag !== null && !$tag instanceof IntTag){ throw new InvalidArgumentException('Invalid WorldEdit offset metadata'); }
+				if($tag !== null && !$tag instanceof IntTag){
+					throw new InvalidArgumentException('Invalid WorldEdit offset metadata');
+				}
 				$offset[] = $tag?->getValue();
 			}
-			if($offset === [null, null, null]){ return ['min' => $this->origin, 'origin' => $this->origin]; }
-			if(in_array(null, $offset, true)){ throw new InvalidArgumentException('Incomplete WorldEdit offset metadata'); }
+			if($offset === [null, null, null]){
+				return ['min' => $this->origin, 'origin' => $this->origin];
+			}
+			if(in_array(null, $offset, true)){
+				throw new InvalidArgumentException('Incomplete WorldEdit offset metadata');
+			}
 			return ['min' => $this->origin, 'origin' => [$this->origin[0] - $offset[0], $this->origin[1] - $offset[1], $this->origin[2] - $offset[2]]];
 		}
 		$worldEdit = $this->metadata?->getTag('WorldEdit');
-		if($worldEdit !== null && !$worldEdit instanceof CompoundTag){ throw new InvalidArgumentException('Invalid WorldEdit metadata'); }
+		if($worldEdit !== null && !$worldEdit instanceof CompoundTag){
+			throw new InvalidArgumentException('Invalid WorldEdit metadata');
+		}
 		$tag = $worldEdit?->getTag('Origin');
 		$origin = $tag === null ? [0, 0, 0] : self::point($tag);
 		return ['min' => [$this->origin[0] + $origin[0], $this->origin[1] + $origin[1], $this->origin[2] + $origin[2]], 'origin' => $origin];
 	}
 
 	/** @return array{int,int,int} */
-	private static function point(\pocketmine\nbt\tag\Tag $tag) : array{
-		if(!$tag instanceof IntArrayTag){ throw new InvalidArgumentException('Origin metadata must be an int array'); }
+	private static function point(Tag $tag) : array{
+		if(!$tag instanceof IntArrayTag){
+			throw new InvalidArgumentException('Origin metadata must be an int array');
+		}
 		$values = array_values($tag->getValue());
-		if(count($values) !== 3){ throw new InvalidArgumentException('Origin metadata must have three coordinates'); }
-		foreach($values as &$value){ if($value > 0x7fffffff){ $value -= 0x100000000; } }
+		if(count($values) !== 3){
+			throw new InvalidArgumentException('Origin metadata must have three coordinates');
+		}
+		foreach($values as $index => $value){
+			if($value < -0x80000000 || $value > 0xffffffff){
+				throw new InvalidArgumentException('Origin metadata exceeds int32 coordinates');
+			}
+			$values[$index] = $value > 0x7fffffff ? $value - 0x100000000 : $value;
+		}
 		return [$values[0], $values[1], $values[2]];
 	}
 }

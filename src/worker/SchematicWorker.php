@@ -7,6 +7,7 @@ namespace asyncworldedit\worker;
 use asyncworldedit\schematic\SchematicCodec;
 use asyncworldedit\schematic\SchematicData;
 use asyncworldedit\schematic\SchematicFileStore;
+use Closure;
 use pmmp\thread\ThreadSafeArray;
 use pocketmine\snooze\SleeperHandlerEntry;
 use quark\thread\Thread;
@@ -29,6 +30,9 @@ final class SchematicWorker extends Thread{
 	}
 
 	public function submit(int $id, string $payload) : void{
+		if($id < 1 || strlen($payload) > SchematicService::MAX_PAYLOAD_BYTES){
+			throw new RuntimeException('Invalid schematic request ID or transport size');
+		}
 		$this->synchronized(function() use ($id, $payload) : void{
 			if($this->isKilled || isset($this->control["active"])){
 				throw new RuntimeException("Schematic worker is unavailable");
@@ -79,7 +83,13 @@ final class SchematicWorker extends Thread{
 			}
 			try{
 				$request = igbinary_unserialize($payload);
+				if(!is_array($request) || !isset($request['id'], $request['name'], $request['operation']) ||
+					!is_int($request['id']) || $request['id'] !== ($this->control['active'] ?? null) ||
+					!is_string($request['name']) || !in_array($request['operation'], ['load', 'save'], true)){
+					throw new RuntimeException('Invalid schematic worker request');
+				}
 				$id = $request["id"];
+				SchematicFileStore::validateName($request['name']);
 				if($this->cancelled($id)){
 					throw new RuntimeException("Schematic request was cancelled");
 				}
@@ -89,12 +99,15 @@ final class SchematicWorker extends Thread{
 				if($request["operation"] === "load"){
 					$data = $codec->decode($store->read($name), $format);
 				}else{
-					$data = $request["data"];
+					$data = $request["data"] ?? null;
 					if(!$data instanceof SchematicData){
 						throw new RuntimeException("Missing schematic save data");
 					}
 					$bytes = $codec->encode($data, $format);
-					$store->save($name, $bytes, fn() : bool => $this->cancelled($id));
+					$store->save($name, $bytes, fn() : bool => $this->cancelled($id), function(Closure $publish) : void{
+						// Cancellation and the final rename share the request lock.
+						$this->synchronized($publish);
+					});
 					$data = null;
 				}
 				$response = igbinary_serialize(["data" => $data, "error" => null]);

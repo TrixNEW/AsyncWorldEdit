@@ -33,7 +33,12 @@ final class SchematicFileStore{
 		}
 		try{
 			$stat = fstat($handle);
-			if($stat === false || $stat["size"] > $this->maxFileBytes){
+			$this->path($name);
+			$current = lstat($path);
+			if($stat === false || $current === false || $stat['ino'] !== $current['ino'] || $stat['dev'] !== $current['dev'] || ($stat['mode'] & 0170000) !== 0100000){
+				throw new RuntimeException('Schematic file changed while opening');
+			}
+			if($stat["size"] > $this->maxFileBytes){
 				throw new RuntimeException("Schematic exceeds file size limit");
 			}
 			$bytes = stream_get_contents($handle, $this->maxFileBytes + 1);
@@ -46,24 +51,25 @@ final class SchematicFileStore{
 		}
 	}
 
-	public function save(string $name, string $bytes, ?Closure $isCancelled = null) : void{
+	/** @param Closure(Closure(): void): void|null $commit */
+	public function save(string $name, string $bytes, ?Closure $isCancelled = null, ?Closure $commit = null) : void{
 		$path = $this->path($name);
 		if(strlen($bytes) > $this->maxFileBytes){
 			throw new RuntimeException("Schematic exceeds file size limit");
 		}
-		$temp = tempnam($this->directory, ".awe-");
-		if($temp === false || dirname($temp) !== $this->directory){
-			if($temp !== false){
-				@unlink($temp);
-			}
-			throw new RuntimeException("Cannot create temporary schematic");
+		if($isCancelled !== null && $isCancelled()){
+			throw new RuntimeException('Schematic save was cancelled');
+		}
+		$temp = $this->directory . DIRECTORY_SEPARATOR . '.awe-' . bin2hex(random_bytes(16));
+		$handle = @fopen($temp, 'x+b');
+		if($handle === false){
+			throw new RuntimeException('Cannot create temporary schematic');
 		}
 		try{
-			$handle = @fopen($temp, "wb");
-			if($handle === false){
-				throw new RuntimeException("Cannot open temporary schematic");
-			}
 			try{
+				if(!@chmod($temp, 0600)){
+					throw new RuntimeException('Cannot secure temporary schematic permissions');
+				}
 				$offset = 0;
 				while($offset < strlen($bytes)){
 					$written = fwrite($handle, substr($bytes, $offset));
@@ -78,12 +84,19 @@ final class SchematicFileStore{
 			}finally{
 				fclose($handle);
 			}
-			$this->path($name);
-			if($isCancelled !== null && $isCancelled()){
-				throw new RuntimeException("Schematic save was cancelled");
-			}
-			if(!@rename($temp, $path)){
-				throw new RuntimeException("Cannot atomically save schematic");
+			$publish = function() use ($name, $isCancelled, $temp, $path) : void{
+				$this->path($name);
+				if($isCancelled !== null && $isCancelled()){
+					throw new RuntimeException("Schematic save was cancelled");
+				}
+				if(!@rename($temp, $path)){
+					throw new RuntimeException("Cannot atomically save schematic");
+				}
+			};
+			if($commit === null){
+				$publish();
+			}else{
+				$commit($publish);
 			}
 		}finally{
 			if(is_file($temp)){
@@ -92,9 +105,17 @@ final class SchematicFileStore{
 		}
 	}
 
-	private function path(string $name) : string{
+	public static function validateName(string $name) : void{
 		if(!preg_match('/\A[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\.(?:schem|mcstructure|schematic)\z/D', $name) || str_contains($name, "..") || preg_match('/\A(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i', $name)){
 			throw new InvalidArgumentException("Use a simple schematic filename with a supported extension");
+		}
+	}
+
+	private function path(string $name) : string{
+		self::validateName($name);
+		clearstatcache(true, $this->directory);
+		if(is_link($this->directory) || realpath($this->directory) !== $this->directory){
+			throw new RuntimeException('Schematic directory was moved or replaced');
 		}
 		$path = $this->directory . DIRECTORY_SEPARATOR . $name;
 		clearstatcache(true, $path);

@@ -37,10 +37,7 @@ final class SchematicCodec{
 			throw new UnexpectedValueException("Schematic file exceeds size limit");
 		}
 		if(str_starts_with($bytes, "\x1f\x8b")){
-			$bytes = @gzdecode($bytes, $this->maxDecodedBytes);
-			if($bytes === false){
-				throw new UnexpectedValueException("Invalid or excessive compressed schematic");
-			}
+			$bytes = $this->decompress($bytes);
 		}
 		if(strlen($bytes) > $this->maxDecodedBytes){
 			throw new UnexpectedValueException("Decoded schematic exceeds size limit");
@@ -58,6 +55,7 @@ final class SchematicCodec{
 
 	public function encode(SchematicData $data, string $format = "schem", int $version = 3) : string{
 		$little = $this->isBedrock($format);
+		$data->placement();
 		$this->dimensions($data->width, $data->height, $data->length);
 		if(count($data->palette) > $this->maxPalette){
 			throw new UnexpectedValueException("Schematic palette exceeds limit");
@@ -82,6 +80,29 @@ final class SchematicCodec{
 			throw new UnexpectedValueException("Encoded schematic exceeds file size limit");
 		}
 		return $bytes;
+	}
+
+	private function decompress(string $bytes) : string{
+		$context = inflate_init(ZLIB_ENCODING_GZIP);
+		if($context === false){
+			throw new UnexpectedValueException('Cannot initialize schematic decompression');
+		}
+		$decoded = '';
+		$length = strlen($bytes);
+		for($offset = 0; $offset < $length; $offset += 1024){
+			$part = @inflate_add($context, substr($bytes, $offset, 1024), $offset + 1024 >= $length ? ZLIB_FINISH : ZLIB_SYNC_FLUSH);
+			if($part === false || strlen($part) > $this->maxDecodedBytes - strlen($decoded)){
+				throw new UnexpectedValueException('Invalid or excessive compressed schematic');
+			}
+			$decoded .= $part;
+			if(inflate_get_status($context) === ZLIB_STREAM_END){
+				break;
+			}
+		}
+		if(inflate_get_status($context) !== ZLIB_STREAM_END || inflate_get_read_len($context) !== $length){
+			throw new UnexpectedValueException('Truncated or trailing compressed schematic data');
+		}
+		return $decoded;
 	}
 
 	private function isBedrock(string $format) : bool{
@@ -201,6 +222,13 @@ final class SchematicCodec{
 		}
 		if($data->formatVersion !== $version){
 			$placement = $data->placement();
+			foreach($placement as $point){
+				foreach($point as $coordinate){
+					if($coordinate < -0x80000000 || $coordinate > 0x7fffffff){
+						throw new UnexpectedValueException('Schematic placement exceeds int32 coordinates for format conversion');
+					}
+				}
+			}
 			$min = $placement['min']; $origin = $placement['origin'];
 			$metadata = $root->getCompoundTag('Metadata') ?? CompoundTag::create();
 			if($version === 2){
@@ -223,7 +251,7 @@ final class SchematicCodec{
 		$encoded = "";
 		for($offset = 0; $offset < strlen($data->states); $offset += 4){
 			$decoded = unpack("V", $data->states, $offset);
-			if($decoded === false){
+			if($decoded === false || $decoded[1] >= count($data->palette)){
 				throw new UnexpectedValueException("Invalid packed schematic state");
 			}
 			$value = $decoded[1];
@@ -355,7 +383,7 @@ final class SchematicCodec{
 						$positions->setTag((string) count($primary), CompoundTag::create()->setTag("block_entity_data", $tile));
 					}
 					$decoded = unpack("V", $data->states, $index * 4);
-					if($decoded === false){
+					if($decoded === false || $decoded[1] >= count($data->palette)){
 						throw new UnexpectedValueException("Invalid packed schematic state");
 					}
 					$primary[] = new IntTag($decoded[1]);

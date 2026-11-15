@@ -124,6 +124,37 @@ final class SchematicWorkerTest extends TestCase{
 		}
 	}
 
+	public function testMalformedWorkerRequestsCannotBecomeSaves() : void{
+		$sleeper = new SleeperHandler();
+		$entry = $sleeper->addNotifier(static function() : void{});
+		$worker = new SchematicWorker($this->directory, $entry);
+		$data = new SchematicData(1, 1, 1, pack('V', 0), ['minecraft:air']);
+		try{
+			try{
+				$worker->submit(0, 'invalid');
+				self::fail('Accepted an invalid request ID');
+			}catch(RuntimeException){
+				self::assertFileDoesNotExist($this->directory . '/unexpected.schem');
+			}
+			self::assertTrue($worker->start());
+			foreach([1 => ['id' => 2, 'operation' => 'save'], 2 => ['id' => 2, 'operation' => 'unexpected']] as $id => $request){
+				$worker->submit($id, igbinary_serialize($request + ['name' => 'unexpected.schem', 'data' => $data]));
+				$result = null;
+				$deadline = microtime(true) + 3;
+				do{
+					$sleeper->sleepUntil(microtime(true) + 0.01);
+					$result = $worker->collect();
+				}while($result === null && microtime(true) < $deadline);
+				self::assertNotNull($result);
+				self::assertSame('Invalid schematic worker request', igbinary_unserialize($result)['error']);
+				self::assertFileDoesNotExist($this->directory . '/unexpected.schem');
+			}
+		}finally{
+			$worker->quit();
+			$sleeper->removeNotifier($entry->getNotifierId());
+		}
+	}
+
 	private function waitFor(SleeperHandler $sleeper, SchematicService $service, \Closure $done) : void{
 		$deadline = microtime(true) + 3;
 		while(!$done() && microtime(true) < $deadline){
@@ -131,5 +162,45 @@ final class SchematicWorkerTest extends TestCase{
 			$service->tick();
 		}
 		self::assertTrue($done(), "Worker did not complete within three seconds");
+	}
+
+	public function testActivityAndFilenameReservationsLastUntilWorkerResultsDrain() : void{
+		$sleeper = new SleeperHandler(); $activity = [];
+		$service = new SchematicService($this->directory,2,$sleeper,static function(bool $active) use (&$activity) : void{ $activity[] = $active; });
+		$data = new SchematicData(1,1,1,pack('V',0),['minecraft:air']);
+		try{
+			self::assertFalse($service->hasPending());
+			$id = $service->save('Same.schem',$data,static function() : void{});
+			self::assertSame([true],$activity);
+			try{ $service->save('same.schem',$data,static function() : void{}); self::fail('Concurrent file save admitted'); }
+			catch(RuntimeException $error){ self::assertStringContainsString('already being saved',$error->getMessage()); }
+			$service->cancel($id);
+			self::assertTrue($service->hasPending());
+			try{ $service->save('Same.schem',$data,static function() : void{}); self::fail('Cancelled save released its file before draining'); }
+			catch(RuntimeException $error){ self::assertStringContainsString('already being saved',$error->getMessage()); }
+			$this->waitFor($sleeper,$service,static fn() : bool => !$service->hasPending());
+			self::assertSame([true,false],$activity);
+			$result = false;
+			$service->save('Same.schem',$data,static function(?SchematicData $data,?string $error) use (&$result) : void{ $result = $error === null; });
+			$this->waitFor($sleeper,$service,static function() use (&$result) : bool{ return $result; });
+			self::assertSame([true,false,true,false],$activity);
+		}finally{ $service->shutdown(); }
+	}
+
+	public function testLostWorkersSettleTheirRequestAndCanBeReplaced() : void{
+		$sleeper = new SleeperHandler(); $service = new SchematicService($this->directory,1,$sleeper);
+		$before = count(ThreadManager::getInstance()->getAll()); $errors = [];
+		$callback = static function(?SchematicData $data,?string $error) use (&$errors) : void{ $errors[] = $error; };
+		try{
+			$service->load('missing.schem',$callback);
+			$slots = (new ReflectionProperty(SchematicService::class,'workers'))->getValue($service);
+			$slots[0]['worker']->quit();
+			$service->tick();
+			self::assertCount(1,$errors); self::assertNotNull($errors[0]); self::assertFalse($service->hasPending());
+			$service->load('missing.schem',$callback);
+			$this->waitFor($sleeper,$service,static function() use (&$errors) : bool{ return count($errors) === 2; });
+			self::assertNotNull($errors[1]);
+		}finally{ $service->shutdown(); }
+		self::assertCount($before,ThreadManager::getInstance()->getAll());
 	}
 }

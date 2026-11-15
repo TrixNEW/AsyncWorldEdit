@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace asyncworldedit\worker;
 
 use asyncworldedit\schematic\SchematicData;
+use asyncworldedit\schematic\SchematicFileStore;
 use Closure;
 use InvalidArgumentException;
 use pocketmine\snooze\SleeperHandler;
@@ -16,15 +17,15 @@ final class SchematicService{
 
 	public const MAX_PAYLOAD_BYTES = 67108864;
 
-	/** @var array<int, array{worker: SchematicWorker, notifier: int, request: ?int}> */
+	/** @var array<int, array{worker: SchematicWorker, notifier: int, request: ?int, file: ?string}> */
 	private array $workers = [];
 	/** @var array<int, Closure(?SchematicData, ?string): void> */
 	private array $callbacks = [];
 	private int $nextId = 1;
 	private bool $closed = false;
-	private int $healthTick = 0;
 
-	public function __construct(private string $directory, private int $workerCount, private SleeperHandler $sleeper){
+	/** @param Closure(bool):void|null $activity */
+	public function __construct(private string $directory, private int $workerCount, private SleeperHandler $sleeper, private ?Closure $activity = null){
 		if($workerCount < 1 || $workerCount > 4){
 			throw new InvalidArgumentException("Use between one and four schematic workers");
 		}
@@ -55,11 +56,11 @@ final class SchematicService{
 	}
 
 	public function tick() : void{
-		if($this->closed || ++$this->healthTick % 20 !== 0){
+		if($this->closed){
 			return;
 		}
 		foreach($this->workers as $index => $slot){
-			if($slot['worker']->isTerminated()){
+			if($slot['worker']->isTerminated() || $slot['worker']->isJoined()){
 				$this->collect($index);
 			}
 		}
@@ -70,6 +71,8 @@ final class SchematicService{
 			return;
 		}
 		$this->closed = true;
+		$activity = $this->activity;
+		$this->activity = null;
 		$callbacks = $this->callbacks;
 		$this->callbacks = [];
 		foreach($this->workers as $slot){
@@ -85,12 +88,23 @@ final class SchematicService{
 			$slot["worker"]->quit();
 		}
 		$this->workers = [];
+		$activity?->__invoke(false);
 	}
 
 	/** @param Closure(?SchematicData, ?string): void $callback */
 	private function submit(string $operation, string $name, ?SchematicData $data, Closure $callback) : int{
+		$this->tick();
 		if($this->closed){
 			throw new RuntimeException("Schematic service is shut down");
+		}
+		SchematicFileStore::validateName($name);
+		$file = $operation === 'save' ? strtolower($name) : null;
+		if($file !== null){
+			foreach($this->workers as $slot){
+				if($slot['file'] === $file && $slot['request'] !== null){
+					throw new RuntimeException('This schematic is already being saved');
+				}
+			}
 		}
 		$index = null;
 		foreach($this->workers as $workerId => $slot){
@@ -103,7 +117,8 @@ final class SchematicService{
 			if(count($this->workers) >= $this->workerCount){
 				throw new RuntimeException("All schematic workers are busy or unavailable");
 			}
-			$index = count($this->workers);
+			$index = 0;
+			while(isset($this->workers[$index])){ ++$index; }
 			$entry = $this->sleeper->addNotifier(fn() => $this->collect($index));
 			$worker = new SchematicWorker($this->directory, $entry);
 			try{
@@ -115,17 +130,29 @@ final class SchematicService{
 				ThreadManager::getInstance()->remove($worker);
 				throw new RuntimeException("Cannot start schematic worker", 0, $e);
 			}
-			$this->workers[$index] = ["worker" => $worker, "notifier" => $entry->getNotifierId(), "request" => null];
+			$this->workers[$index] = ["worker" => $worker, "notifier" => $entry->getNotifierId(), "request" => null, 'file' => null];
 		}
 		$id = $this->nextId++;
 		$payload = igbinary_serialize(["id" => $id, "operation" => $operation, "name" => $name, "data" => $data]);
 		if($payload === null || strlen($payload) > self::MAX_PAYLOAD_BYTES){
 			throw new RuntimeException("Schematic request exceeds transport size limit");
 		}
-		$this->workers[$index]["worker"]->submit($id, $payload);
-		$this->workers[$index]["request"] = $id;
+		$wasIdle = !$this->hasPending();
+		$slot = $this->workers[$index];
+		$slot['worker']->submit($id, $payload);
+		$slot['request'] = $id;
+		$slot['file'] = $file;
+		$this->workers[$index] = $slot;
 		$this->callbacks[$id] = $callback;
+		if($wasIdle){ ($this->activity)?->__invoke(true); }
 		return $id;
+	}
+
+	public function hasPending() : bool{
+		foreach($this->workers as $slot){
+			if($slot['request'] !== null){ return true; }
+		}
+		return false;
 	}
 
 	private function collect(int $index) : void{
@@ -134,19 +161,29 @@ final class SchematicService{
 		}
 		$slot = $this->workers[$index];
 		$payload = $slot["worker"]->collect();
-		$crashed = $slot["worker"]->isTerminated();
+		$crashed = $slot["worker"]->isTerminated() || $slot['worker']->isJoined();
 		$id = $slot["request"];
+		if($crashed){
+			$this->sleeper->removeNotifier($slot['notifier']);
+			$slot['worker']->quit();
+			unset($this->workers[$index]);
+		}
 		if($id === null || ($payload === null && !$crashed)){
 			return;
 		}
-		$this->workers[$index]["request"] = null;
+		if(!$crashed){
+			$this->workers[$index]["request"] = null;
+			$this->workers[$index]['file'] = null;
+		}
 		$callback = $this->callbacks[$id] ?? null;
 		unset($this->callbacks[$id]);
 		if($callback === null){
+			if(!$this->hasPending()){ ($this->activity)?->__invoke(false); }
 			return;
 		}
 		$result = $payload === null ? ["data" => null, "error" => "Schematic worker terminated"] : igbinary_unserialize($payload);
 		$this->invoke($callback, $result["data"], $result["error"]);
+		if(!$this->hasPending()){ ($this->activity)?->__invoke(false); }
 	}
 
 	/** @param Closure(?SchematicData, ?string): void $callback */
