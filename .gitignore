@@ -1,0 +1,7 @@
+/vendor/
+/.research/
+/build/*.phar
+/.phpunit.cache/
+/.phpstan-cache/
+/benchmarks/results.local.json
+/.runtime/

@@ -1,0 +1,12 @@
+parameters:
+	level: 8
+	paths:
+		- src/Settings.php
+		- src/geometry
+		- src/pattern
+		- src/clipboard
+		- src/engine
+		- src/schematic
+	tmpDir: .phpstan-cache/core
+	treatPhpDocTypesAsCertain: false
+	rememberPossiblyImpureFunctionValues: false
