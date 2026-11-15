@@ -35,9 +35,3 @@ Selectors: cuboid, ellipsoid and cylinder. Patterns support weights and `#existi
 - Edits require loaded, populated chunks. Overlapping operations reject; cancellation retains partial undo history. History is held in memory and ends on disconnect or restart.
 - Sponge `.schem` v2/v3 imports accept states Quark can resolve exactly. General Java block and block-entity conversion is unsupported. Bedrock `.mcstructure` supports import/export; an optional `asyncworldedit_origin` extension preserves the clipboard pivot.
 - Inventories, secondary fluid layers, legacy `.schematic`, biome/entity transfer and block-entity transforms are unsupported. Unsupported data fails explicitly.
-
-The native million-block test completed in **108.6 s** with a 10 ms budget and no connected players; its final rolling TPS average was 20.0.
-
-## Development
-
-`composer test`, `composer analyse:core`, `composer build`. Full adapter analysis/tests require Quark's native runtime and source checkout. Run [live integration tests](tools/integration/README.md) for world, lighting and persistence checks.
