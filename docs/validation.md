@@ -21,9 +21,3 @@ The installed Composer root revision was stale. The test bootstrap verifies inst
 The ordinary placement baseline took 11.65 s in one synchronous loop. It excludes history and expected-state reads, and stalls the main thread; it is not a throughput-equivalent replacement for the scheduler. Both paths keep Quark's normal updates enabled. Peak PHP allocation was 509.5 MiB and peak process RSS 692.4 MiB across the combined baseline/scheduled run, including loaded worlds and Quark update queues. These are not plugin-only memory measurements.
 
 The [packed-memory benchmark](../benchmarks/engine.php) isolates scheduling/history overhead. It excludes Quark, physics, lighting, network traffic and tick sleeps; its throughput must not be advertised as server throughput.
-
-## Remaining release work
-
-Client-visible outlines, double-slash autocomplete and multiplayer synchronization need connected Bedrock clients. Mixed-palette, sparse, complex-mask, repeated-brush and multi-client performance matrices are incomplete. Hard process-termination recovery, disk-backed undo, unloaded-terrain editing, general Java conversion and inventory-preserving edits are not implemented. Normal block physics can affect blocks outside a direct edit; those secondary effects are not captured in history.
-
-The current evidence supports the tested behavior, not a production-readiness claim.
