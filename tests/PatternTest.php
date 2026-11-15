@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\pattern\Mask;
-use asyncworldedit\pattern\Pattern;
+use Trix\WorldEdit\pattern\Mask;
+use Trix\WorldEdit\pattern\Pattern;
 use Closure;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;

@@ -15,14 +15,14 @@
     },
     "autoload": {
         "psr-4": {
-            "asyncworldedit\\": "src/"
+            "Trix\\WorldEdit\\": "src/Trix/WorldEdit/"
         }
     },
     "scripts": {
         "test": "phpunit",
         "analyse": "phpstan analyse --memory-limit=1G",
         "build": "@php -d phar.readonly=0 tools/build.php",
-        "bench": "@php benchmarks/engine.php",
+        "bench": "@php tests/benchmarks/engine.php",
         "analyse:core": "phpstan analyse -c phpstan-core.neon --memory-limit=1G"
     },
     "config": {

@@ -3,5 +3,6 @@
 /build/*.phar
 /.phpunit.cache/
 /.phpstan-cache/
-/benchmarks/results.local.json
+/tests/benchmarks/results.local.json
+/docs/
 /.runtime/

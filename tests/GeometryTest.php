@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\geometry\Region;
+use Trix\WorldEdit\geometry\Region;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 

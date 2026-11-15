@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\schematic\SchematicData;
-use asyncworldedit\worker\SchematicService;
-use asyncworldedit\worker\SchematicWorker;
+use Trix\WorldEdit\schematic\SchematicData;
+use Trix\WorldEdit\worker\SchematicService;
+use Trix\WorldEdit\worker\SchematicWorker;
 use PHPUnit\Framework\TestCase;
 use pocketmine\snooze\SleeperHandler;
 use quark\Server;
@@ -33,7 +33,7 @@ final class SchematicWorkerTest extends TestCase{
 		$this->previousServer = $property->getValue();
 		$server = (new ReflectionClass(Server::class))->newInstanceWithoutConstructor();
 		$loader = new ThreadSafeClassLoader();
-		$loader->addPath("asyncworldedit", dirname(__DIR__) . "/src");
+		$loader->addPath("", dirname(__DIR__) . "/src");
 		(new ReflectionProperty(Server::class, "autoloader"))->setValue($server, $loader);
 		$property->setValue(null, $server);
 		$this->directory = sys_get_temp_dir() . "/awe-worker-" . bin2hex(random_bytes(8));

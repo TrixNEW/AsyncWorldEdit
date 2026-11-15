@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\Settings;
-use asyncworldedit\engine\BlockValue;
-use asyncworldedit\engine\ClipboardOperations;
-use asyncworldedit\engine\Editor;
-use asyncworldedit\engine\Job;
-use asyncworldedit\engine\TerrainOperations;
-use asyncworldedit\geometry\Region;
-use asyncworldedit\pattern\Mask;
+use Trix\WorldEdit\Settings;
+use Trix\WorldEdit\engine\BlockValue;
+use Trix\WorldEdit\engine\ClipboardOperations;
+use Trix\WorldEdit\engine\Editor;
+use Trix\WorldEdit\engine\Job;
+use Trix\WorldEdit\engine\TerrainOperations;
+use Trix\WorldEdit\geometry\Region;
+use Trix\WorldEdit\pattern\Mask;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/MemoryWorld.php';

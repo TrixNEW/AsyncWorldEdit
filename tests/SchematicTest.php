@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\schematic\SchematicCodec;
-use asyncworldedit\schematic\SchematicData;
-use asyncworldedit\schematic\SchematicFileStore;
+use Trix\WorldEdit\schematic\SchematicCodec;
+use Trix\WorldEdit\schematic\SchematicData;
+use Trix\WorldEdit\schematic\SchematicFileStore;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use pocketmine\nbt\BigEndianNbtSerializer;

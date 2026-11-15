@@ -2,20 +2,20 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\Main;
-use asyncworldedit\Session;
-use asyncworldedit\Settings;
-use asyncworldedit\clipboard\Clipboard;
-use asyncworldedit\engine\Editor;
+use Trix\WorldEdit\Main;
+use Trix\WorldEdit\Session;
+use Trix\WorldEdit\Settings;
+use Trix\WorldEdit\clipboard\Clipboard;
+use Trix\WorldEdit\engine\Editor;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionProperty;
 use ReflectionMethod;
 use quark\plugin\PluginBase;
 use quark\scheduler\TaskScheduler;
-use asyncworldedit\engine\BlockValue;
+use Trix\WorldEdit\engine\BlockValue;
 use quark\player\Player;
 use quark\world\World;
 use Ramsey\Uuid\Uuid;
@@ -36,9 +36,9 @@ final class MainTest extends TestCase{
 		$this->requireQuark();
 		$item = \quark\item\VanillaItems::WOODEN_AXE();
 		$item->getNamedTag()->setString('asyncworldedit:wand','unexpected');
-		self::assertFalse(\asyncworldedit\quark\Tools::isWand($item));
+		self::assertFalse(\Trix\WorldEdit\quark\Tools::isWand($item));
 		$item->getNamedTag()->setByte('asyncworldedit:wand',1);
-		self::assertTrue(\asyncworldedit\quark\Tools::isWand($item));
+		self::assertTrue(\Trix\WorldEdit\quark\Tools::isWand($item));
 	}
 
 	public function testEditorTasksWakeForApiAndHistoryAndStopWhenIdle() : void{

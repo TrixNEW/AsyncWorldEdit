@@ -1,12 +1,12 @@
 parameters:
 	level: 8
 	paths:
-		- src/Settings.php
-		- src/geometry
-		- src/pattern
-		- src/clipboard
-		- src/engine
-		- src/schematic
+		- src/Trix/WorldEdit/Settings.php
+		- src/Trix/WorldEdit/geometry
+		- src/Trix/WorldEdit/pattern
+		- src/Trix/WorldEdit/clipboard
+		- src/Trix/WorldEdit/engine
+		- src/Trix/WorldEdit/schematic
 	tmpDir: .phpstan-cache/core
 	treatPhpDocTypesAsCertain: false
 	rememberPossiblyImpureFunctionValues: false

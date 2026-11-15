@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\quark\BlockStates;
+use Trix\WorldEdit\quark\BlockStates;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use quark\block\RuntimeBlockStateRegistry;

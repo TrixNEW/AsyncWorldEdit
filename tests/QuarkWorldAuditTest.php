@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\engine\BlockValue;
-use asyncworldedit\quark\QuarkWorld;
+use Trix\WorldEdit\engine\BlockValue;
+use Trix\WorldEdit\quark\QuarkWorld;
 use PHPUnit\Framework\TestCase;
 use quark\block\Block;
 use quark\block\BaseSign;

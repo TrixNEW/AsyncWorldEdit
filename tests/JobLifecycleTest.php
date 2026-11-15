@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\Settings;
-use asyncworldedit\engine\Editor;
-use asyncworldedit\engine\Job;
+use Trix\WorldEdit\Settings;
+use Trix\WorldEdit\engine\Editor;
+use Trix\WorldEdit\engine\Job;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__.'/MemoryWorld.php';

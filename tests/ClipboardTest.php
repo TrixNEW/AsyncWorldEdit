@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\clipboard\Clipboard;
+use Trix\WorldEdit\clipboard\Clipboard;
 use InvalidArgumentException;
 use OutOfBoundsException;
 use PHPUnit\Framework\TestCase;

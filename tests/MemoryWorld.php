@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\engine\BlockValue;
-use asyncworldedit\engine\WorldAccess;
+use Trix\WorldEdit\engine\BlockValue;
+use Trix\WorldEdit\engine\WorldAccess;
 
 final class MemoryWorld implements WorldAccess{
 	/** @var array<string, BlockValue> */

@@ -1,9 +1,20 @@
+# Maximum work units per job; multi-pass operations can visit a block more than once.
 maxBlocks = 2000000
+# Global queue limit. Each player can have one active edit.
 maxJobs = 16
+# Main-thread editor budget in microseconds per tick (2000 = 2 ms).
+# Individual world updates and later block physics can exceed this budget.
 budgetMicros = 2000
+# Additional cap on work units processed each tick, shared fairly between jobs.
 blocksPerTick = 2048
+# Shared undo/redo memory limit in bytes (67108864 = 64 MiB).
 historyBytes = 67108864
+# Maximum retained entries in each player's undo/redo stack for a world.
+# History is discarded on disconnect, world unload or plugin shutdown.
 historyEntries = 15
+# Maximum blocks in a clipboard or smoothing snapshot.
 clipboardBlocks = 500000
+# Dedicated schematic workers (1-4), started on demand and sleeping when idle.
 workers = 1
+# Shared memory limit for player clipboards and reserved replacements, in bytes.
 clipboardBytes = 67108864

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\Session;
-use asyncworldedit\clipboard\Clipboard;
-use asyncworldedit\command\SchematicCommands;
-use asyncworldedit\schematic\SchematicCodec;
-use asyncworldedit\schematic\SchematicData;
+use Trix\WorldEdit\Session;
+use Trix\WorldEdit\clipboard\Clipboard;
+use Trix\WorldEdit\command\SchematicCommands;
+use Trix\WorldEdit\schematic\SchematicCodec;
+use Trix\WorldEdit\schematic\SchematicData;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use pocketmine\nbt\tag\CompoundTag;

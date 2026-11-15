@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace asyncworldedit\tests;
+namespace Trix\WorldEdit\tests;
 
-use asyncworldedit\geometry\Region;
-use asyncworldedit\quark\SelectionOutline;
+use Trix\WorldEdit\geometry\Region;
+use Trix\WorldEdit\quark\SelectionOutline;
 use PHPUnit\Framework\TestCase;
 
 final class OutlineTest extends TestCase{
