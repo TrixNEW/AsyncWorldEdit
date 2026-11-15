@@ -43,7 +43,7 @@ final class Job{
 	}
 
 	public function canContinue() : bool{
-		return !$this->cancelled && $this->world->isValid();
+		return !$this->isFinished() && !$this->cancelled && $this->world->isValid();
 	}
 
 	public function isFinished() : bool{

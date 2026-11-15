@@ -72,12 +72,15 @@ final class TerrainOperations{
 	 * A 3x3 height average preserves caves below the surface; at most twice the volume is visited.
 	 * @return Generator<int, array{int, int, int, BlockValue, BlockValue}|null>
 	 */
-	public static function smooth(WorldAccess $world, Region $region, int $air = 0) : Generator{
+	public static function smooth(WorldAccess $world, Region $region, int $air = 0, int $maxBlocks = 500000) : Generator{
+		if($region->volume() > $maxBlocks){ throw new \InvalidArgumentException('Smoothing exceeds snapshot limit'); }
 		$width = $region->maxX - $region->minX + 1;
 		$length = $region->maxZ - $region->minZ + 1;
+		$heightCount = $region->maxY - $region->minY + 1;
 		$columns = $width * $length;
 		$heights = str_repeat(pack("V", ($region->minY - 1) & 0xffffffff), $columns);
 		$states = str_repeat(pack("V", $air), $columns);
+		$snapshot = str_repeat(pack('V', $air), $region->volume());
 		for($x = $region->minX; $x <= $region->maxX; ++$x){
 			for($z = $region->minZ; $z <= $region->maxZ; ++$z){
 				$index = ($x - $region->minX) * $length + $z - $region->minZ;
@@ -86,6 +89,8 @@ final class TerrainOperations{
 					if($region->contains($x, $y, $z)){
 						$world->acquire($x >> 4, $z >> 4);
 						$block = $world->read($x, $y, $z);
+						if($block->nbt !== null){ throw new \InvalidArgumentException('Smoothing does not support block entities'); }
+						self::setPacked($snapshot, $index * $heightCount + $y - $region->minY, $block->state);
 						if(!$found && $block->state !== $air){
 							self::setPacked($heights, $index, $y & 0xffffffff);
 							self::setPacked($states, $index, $block->state);
@@ -122,8 +127,7 @@ final class TerrainOperations{
 						yield null;
 						continue;
 					}
-					$world->acquire($x >> 4, $z >> 4);
-					$expected = $world->read($x, $y, $z);
+					$expected = new BlockValue(self::packed($snapshot, $index * $heightCount + $y - $region->minY));
 					$value = new BlockValue($average < $height ? $air : $state);
 					yield [$x, $y, $z, $value, $expected];
 				}

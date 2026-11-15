@@ -1,7 +1,7 @@
 name = "AsyncWorldEdit"
 main = "asyncworldedit\\Main"
 src-namespace-prefix = "asyncworldedit"
-version = "0.1.0"
+version = "0.1.1"
 api = "6.0.0"
 description = "Chunk-oriented world editing for Quark 6"
 author = "TrixNEW"

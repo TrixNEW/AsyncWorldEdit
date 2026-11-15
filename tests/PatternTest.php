@@ -110,4 +110,18 @@ final class PatternTest extends TestCase{
 			}
 		}
 	}
+
+	public function testOversizedInputIsRejectedWithoutCopyingIt() : void{
+		$resolve = self::resolver();
+		Pattern::parse("stone", $resolve);
+		$input = " " . str_repeat("s", 1048576) . " ";
+		memory_reset_peak_usage();
+		$before = memory_get_usage();
+		try{
+			Pattern::parse($input, $resolve);
+			self::fail("Oversized expression was accepted");
+		}catch(InvalidArgumentException){
+			self::assertLessThan(65536, memory_get_peak_usage() - $before);
+		}
+	}
 }

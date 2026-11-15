@@ -41,7 +41,7 @@ final class ChangeSet{
 	}
 
 	public function bytes() : int{
-		return $this->sealedBytes + strlen($this->records) + $this->tileBytes;
+		return 256 + $this->sealedBytes + count($this->sealed) * 64 + strlen($this->records) + $this->tileBytes;
 	}
 
 	public function updateLastAfter(BlockValue $value) : void{

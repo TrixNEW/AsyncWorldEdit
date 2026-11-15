@@ -109,10 +109,12 @@ final class SchematicCommands{
 			throw new \InvalidArgumentException('Export uses .mcstructure to preserve exact Bedrock states');
 		}
 		$steps = (function() use ($clipboard, $player, $session, $name) : \Generator{
-			$bounds = $clipboard->bounds([0, 0, 0]);
-			$width = $bounds->maxX - $bounds->minX + 1;
-			$height = $bounds->maxY - $bounds->minY + 1;
-			$length = $bounds->maxZ - $bounds->minZ + 1;
+			$bounds = $clipboard->relativeBounds();
+			[$minX, $minY, $minZ] = $bounds['min'];
+			[$maxX, $maxY, $maxZ] = $bounds['max'];
+			$width = $maxX - $minX + 1;
+			$height = $maxY - $minY + 1;
+			$length = $maxZ - $minZ + 1;
 			$packed = str_repeat("\x00", $clipboard->volume() * 4);
 			$indices = [];
 			$palette = [];
@@ -125,17 +127,17 @@ final class SchematicCommands{
 					$palette[] = $this->states->name($value->state);
 					$bedrockPalette[] = \quark\world\format\io\GlobalBlockStateHandlers::getSerializer()->serialize($value->state)->toVanillaNbt();
 				}
-				$index = (($y - $bounds->minY) * $length + ($z - $bounds->minZ)) * $width + ($x - $bounds->minX);
+				$index = (($y - $minY) * $length + ($z - $minZ)) * $width + ($x - $minX);
 				$bytes = pack('V', $indices[$value->state]);
 				for($byte = 0; $byte < 4; ++$byte){
 					$packed[$index * 4 + $byte] = $bytes[$byte];
 				}
 				if($value->nbt !== null){
-					$tiles[$index] = $serializer->read($value->nbt)->mustGetCompoundTag()->setInt('x', $x - $bounds->minX)->setInt('y', $y - $bounds->minY)->setInt('z', $z - $bounds->minZ);
+					$tiles[$index] = $serializer->read($value->nbt)->mustGetCompoundTag()->setInt('x', $x - $minX)->setInt('y', $y - $minY)->setInt('z', $z - $minZ);
 				}
 				yield null;
 			}
-			$worldOrigin = [$bounds->minX + $clipboard->origin[0], $bounds->minY + $clipboard->origin[1], $bounds->minZ + $clipboard->origin[2]];
+			$worldOrigin = [$minX + $clipboard->origin[0], $minY + $clipboard->origin[1], $minZ + $clipboard->origin[2]];
 			$metadata = \pocketmine\nbt\tag\CompoundTag::create()->setIntArray('ClipboardOrigin', $clipboard->origin);
 			$data = new SchematicData($width, $height, $length, $packed, $palette, $worldOrigin, $tiles, 'mcstructure', $bedrockPalette, metadata: $metadata, validateStates: false, formatVersion: 1);
 			$session->fileRequest = $this->schematics->save($name, $data, function(?SchematicData $unused, ?string $error) use ($player, $session) : void{

@@ -17,9 +17,10 @@ final class ClipboardOperations{
 	 * Copy visits the bounding volume once; cut visits it at most twice.
 	 * @param array{int, int, int} $pivot
 	 * @param Closure(Clipboard): void $result
+	 * @param Closure(Clipboard): void|null $prepared
 	 * @return Generator<int, array{int, int, int, BlockValue, BlockValue}|null>
 	 */
-	public static function capture(WorldAccess $world, Region $region, array $pivot, int $maxBlocks, Closure $result, bool $cut = false, int $air = 0) : Generator{
+	public static function capture(WorldAccess $world, Region $region, array $pivot, int $maxBlocks, Closure $result, bool $cut = false, int $air = 0, ?Mask $mask = null, ?Closure $prepared = null) : Generator{
 		if($region->volume() > $maxBlocks){
 			throw new InvalidArgumentException("Selection exceeds the clipboard block limit");
 		}
@@ -53,11 +54,12 @@ final class ClipboardOperations{
 		}
 		$clipboard = new Clipboard($width, $height, $length, $states, $tiles, [$region->minX, $region->minY, $region->minZ], $pivot, $maxBlocks);
 		unset($states, $tiles);
+		$prepared?->__invoke($clipboard);
 		if($cut){
 			foreach($box->positions() as [$x, $y, $z]){
 				if($region->contains($x, $y, $z)){
 					$expected = $clipboard->at($x - $region->minX, $y - $region->minY, $z - $region->minZ);
-					yield [$x, $y, $z, $airValue, $expected];
+					yield $mask === null || $mask->matches($x, $y, $z, $expected->state) ? [$x, $y, $z, $airValue, $expected] : null;
 				}else{
 					yield null;
 				}

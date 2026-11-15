@@ -27,7 +27,6 @@ final class Session{
 	public ?int $brushItem = null;
 	public int $brushTick = -20;
 	public bool $outline = true;
-	public int $outlineTick = -20;
 	public ?int $fileRequest = null;
 
 	public function selection(string $worldId) : Region{

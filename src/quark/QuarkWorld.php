@@ -11,7 +11,12 @@ use pocketmine\nbt\LittleEndianNbtSerializer;
 use pocketmine\nbt\TreeRoot;
 use pocketmine\nbt\tag\CompoundTag;
 use quark\block\Block;
+use quark\block\Piston;
+use quark\block\PistonArmCollision;
 use quark\block\RuntimeBlockStateRegistry;
+use quark\block\tile\ItemFrame as ItemFrameTile;
+use quark\block\tile\Jukebox as JukeboxTile;
+use quark\block\tile\Lectern as LecternTile;
 use quark\block\tile\Spawnable;
 use quark\block\tile\Tile;
 use quark\block\tile\TileFactory;
@@ -32,6 +37,8 @@ final class QuarkWorld implements WorldAccess{
 	private array $tileClasses = [];
 	/** @var array<int, Block> */
 	private array $blockPrototypes = [];
+	/** @var array<int, 'piston'|'tile'> */
+	private array $unsupportedStates = [];
 
 	public function __construct(private readonly World $world){
 		$this->worldId = $world->getFolderName() . "#" . $world->getId();
@@ -102,9 +109,6 @@ final class QuarkWorld implements WorldAccess{
 
 		$state = $chunk->getBlockStateId($localX, $y, $localZ);
 		$tileClass = $this->tileClass($state);
-		if($tileClass !== null && is_a($tileClass, InventoryHolder::class, true)){
-			throw new \InvalidArgumentException("Inventory-bearing block entities are not supported by async edits");
-		}
 		$tile = $chunk->getTile($localX, $y, $localZ);
 		if($tile === null){
 			return new BlockValue($state);
@@ -117,11 +121,9 @@ final class QuarkWorld implements WorldAccess{
 	}
 
 	public function write(int $x, int $y, int $z, BlockValue $value) : void{
-		$chunk = $this->getAcquiredChunk($x, $z);
 		if($y < $this->minY() || $y >= $this->maxY()){
 			throw new \OutOfBoundsException("Y coordinate $y is outside the world bounds");
 		}
-
 		$block = $this->blockPrototypes[$value->state] ?? null;
 		if($block === null){
 			if(!RuntimeBlockStateRegistry::getInstance()->hasStateId($value->state)){
@@ -132,14 +134,16 @@ final class QuarkWorld implements WorldAccess{
 				$this->blockPrototypes[$value->state] = $block;
 			}
 		}
+		$this->assertSupportedState($value->state, $block);
+
+		$chunk = $this->getAcquiredChunk($x, $z);
+		$this->tileClass($chunk->getBlockStateId($x & 15, $y, $z & 15));
+
 		$tileClass = $block->getIdInfo()->getTileClass();
 		$tag = $value->nbt === null ? null : self::decodeTile($value->nbt);
 		$preparedTile = null;
 		if($tileClass === null && $tag !== null){
 			throw new \InvalidArgumentException("Block state {$value->state} does not accept tile data");
-		}
-		if($tileClass !== null && is_a($tileClass, InventoryHolder::class, true)){
-			throw new \InvalidArgumentException("Inventory-bearing block entities are not supported by async edits");
 		}
 		if($tag !== null){
 			$preparedTile = TileFactory::getInstance()->createFromData($tag);
@@ -159,8 +163,8 @@ final class QuarkWorld implements WorldAccess{
 		}
 
 		$oldTile = $chunk->getTile($x & 15, $y, $z & 15);
-		if($oldTile instanceof InventoryHolder){
-			throw new \InvalidArgumentException("Inventory-bearing block entities are not supported by async edits");
+		if($oldTile !== null){
+			$this->assertSupportedTile($oldTile);
 		}
 		if($tag === null && $tileClass !== null && $oldTile !== null){
 			throw new \InvalidArgumentException("Tile data is required when replacing an existing tile block");
@@ -182,6 +186,8 @@ final class QuarkWorld implements WorldAccess{
 			if($tile instanceof Spawnable){
 				$tile->clearSpawnCompoundCache();
 			}
+			// Chunk listeners can cache the temporary tile state during setBlockAt().
+			$this->world->getBlockAt($x, $y, $z, false);
 		}
 	}
 
@@ -205,9 +211,7 @@ final class QuarkWorld implements WorldAccess{
 	}
 
 	private function assertSupportedTile(Tile $tile) : void{
-		if($tile instanceof InventoryHolder){
-			throw new \InvalidArgumentException("Inventory-bearing block entities are not supported by async edits");
-		}
+		$this->assertSupportedTileClass($tile::class);
 	}
 
 	/** @return class-string<Tile>|null */
@@ -216,13 +220,53 @@ final class QuarkWorld implements WorldAccess{
 			if(!RuntimeBlockStateRegistry::getInstance()->hasStateId($state)){
 				throw new \RuntimeException("Chunk contains an unknown block state ID $state");
 			}
-			$class = RuntimeBlockStateRegistry::getInstance()->fromStateId($state)->getIdInfo()->getTileClass();
+			$block = RuntimeBlockStateRegistry::getInstance()->fromStateId($state);
+			$this->assertSupportedState($state, $block);
+			$class = $block->getIdInfo()->getTileClass();
 			if(count($this->tileClasses) < self::MAX_STATE_CACHE){
 				$this->tileClasses[$state] = $class;
 			}
 			return $class;
 		}
 		return $this->tileClasses[$state];
+	}
+
+	private function assertSupportedState(int $state, Block $block) : void{
+		if(isset($this->unsupportedStates[$state])){
+			throw self::unsupportedStateException($this->unsupportedStates[$state]);
+		}
+		if($block instanceof Piston || $block instanceof PistonArmCollision){
+			if(count($this->unsupportedStates) < self::MAX_STATE_CACHE){
+				$this->unsupportedStates[$state] = 'piston';
+			}
+			throw self::unsupportedStateException('piston');
+		}
+		try{
+			$this->assertSupportedTileClass($block->getIdInfo()->getTileClass());
+		}catch(\InvalidArgumentException $e){
+			if(count($this->unsupportedStates) < self::MAX_STATE_CACHE){
+				$this->unsupportedStates[$state] = 'tile';
+			}
+			throw $e;
+		}
+	}
+
+	private static function unsupportedStateException(string $kind) : \InvalidArgumentException{
+		$message = $kind === 'piston'
+			? 'Pistons and piston arms are not supported by async edits because they can move blocks outside the edit history'
+			: 'Item-bearing and inventory block entities are not supported by async edits because copying them duplicates stored contents';
+		return new \InvalidArgumentException($message);
+	}
+
+	private function assertSupportedTileClass(?string $tileClass) : void{
+		if($tileClass !== null && (
+			is_a($tileClass, InventoryHolder::class, true) ||
+			is_a($tileClass, ItemFrameTile::class, true) ||
+			is_a($tileClass, JukeboxTile::class, true) ||
+			is_a($tileClass, LecternTile::class, true)
+		)){
+			throw new \InvalidArgumentException("Item-bearing and inventory block entities are not supported by async edits because copying them duplicates stored contents");
+		}
 	}
 
 	private static function encodeTile(CompoundTag $tag) : string{

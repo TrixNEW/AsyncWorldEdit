@@ -16,6 +16,7 @@ final class Clipboard{
 	private const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 	/** @var array<int, int> */
 	private array $matrix = self::IDENTITY;
+	private readonly int $size;
 
 	/**
 	 * @param array<int, string> $tiles Normalized little-endian block entity NBT, indexed in YZX order.
@@ -47,7 +48,7 @@ final class Clipboard{
 		}
 		self::validatePoint($min);
 		self::validatePoint($origin);
-		self::validateTiles($tiles, $volume);
+		$this->size = strlen($states) + self::validateTiles($tiles, $volume);
 	}
 
 	public function volume() : int{
@@ -55,9 +56,7 @@ final class Clipboard{
 	}
 
 	public function bytes() : int{
-		$bytes = strlen($this->states);
-		foreach($this->tiles as $tile){ $bytes += strlen($tile) + 128; }
-		return $bytes;
+		return $this->size;
 	}
 
 	public function at(int $x, int $y, int $z) : BlockValue{
@@ -129,13 +128,21 @@ final class Clipboard{
 	/** @param array{int, int, int} $targetPivot */
 	public function bounds(array $targetPivot) : Region{
 		self::validatePoint($targetPivot);
+		$bounds = $this->relativeBounds();
+		return new Region(
+			$bounds["min"][0] + $targetPivot[0], $bounds["min"][1] + $targetPivot[1], $bounds["min"][2] + $targetPivot[2],
+			$bounds["max"][0] + $targetPivot[0], $bounds["max"][1] + $targetPivot[1], $bounds["max"][2] + $targetPivot[2]
+		);
+	}
+
+	/** @return array{min: array{int, int, int}, max: array{int, int, int}} */
+	public function relativeBounds() : array{
 		$first = $this->transform($this->min[0] - $this->origin[0], $this->min[1] - $this->origin[1], $this->min[2] - $this->origin[2]);
 		$last = $this->transform($this->min[0] + $this->width - 1 - $this->origin[0], $this->min[1] + $this->height - 1 - $this->origin[1], $this->min[2] + $this->length - 1 - $this->origin[2]);
-		for($axis = 0; $axis < 3; ++$axis){
-			$first[$axis] += $targetPivot[$axis];
-			$last[$axis] += $targetPivot[$axis];
-		}
-		return Region::between($first, $last);
+		return [
+			"min" => [min($first[0], $last[0]), min($first[1], $last[1]), min($first[2], $last[2])],
+			"max" => [max($first[0], $last[0]), max($first[1], $last[1]), max($first[2], $last[2])]
+		];
 	}
 
 	/** @return array{int, int, int} */
@@ -168,11 +175,14 @@ final class Clipboard{
 	}
 
 	/** @param array<array-key, mixed> $tiles */
-	private static function validateTiles(array $tiles, int $volume) : void{
+	private static function validateTiles(array $tiles, int $volume) : int{
+		$bytes = 0;
 		foreach($tiles as $index => $nbt){
 			if(!is_int($index) || $index < 0 || $index >= $volume || !is_string($nbt) || $nbt === "" || strlen($nbt) > 65536){
 				throw new InvalidArgumentException("Invalid clipboard block entity");
 			}
+			$bytes += strlen($nbt) + 128;
 		}
+		return $bytes;
 	}
 }

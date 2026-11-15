@@ -10,6 +10,13 @@ use OutOfBoundsException;
 use PHPUnit\Framework\TestCase;
 
 final class ClipboardTest extends TestCase{
+	public function testImmutableStorageSizeIncludesTilePayloadAndSurvivesCloning() : void{
+		$clipboard = new Clipboard(2,1,1,pack('V*',1,2),[0=>'exact data']);
+		self::assertSame(8 + 128 + 10,$clipboard->bytes());
+		self::assertSame($clipboard->bytes(),(clone $clipboard)->bytes());
+		$plain = new Clipboard(2,1,1,pack('V*',1,2));
+		self::assertSame($plain->bytes(),$plain->rotate(90)->flip('x')->bytes());
+	}
 
 	private static function sample() : Clipboard{
 		return new Clipboard(2, 2, 2, pack("V*", 0, 1, 2, 3, 4, 5, 6, 0xffffffff), [], [-10, 4, -20], [-12, 3, -18]);
@@ -54,6 +61,35 @@ final class ClipboardTest extends TestCase{
 		}
 		$this->expectException(InvalidArgumentException::class);
 		$clipboard->bounds([30000000, 20, 30]);
+	}
+
+	public function testRelativeBoundsPreserveOffsetsBeyondWorldLimits() : void{
+		$clipboard = new Clipboard(1, 1, 1, pack("V", 1), [], [-30000000, 0, 0], [30000000, 0, 0]);
+		self::assertSame(["min" => [-60000000, 0, 0], "max" => [-60000000, 0, 0]], $clipboard->relativeBounds());
+		$worldBounds = $clipboard->bounds($clipboard->origin);
+		self::assertSame(-30000000, $worldBounds->minX);
+		self::assertSame(-30000000, $worldBounds->maxX);
+		self::assertSame(1, $worldBounds->volume());
+	}
+
+	public function testRelativeExtentsMatchRectangularRotationAndFlipCompositions() : void{
+		$clipboard = new Clipboard(2, 3, 4, str_repeat(pack("V", 1), 24), [], [-30000000, -3, -20], [30000000, 10, 5]);
+		foreach([0, 90, 180, 270] as $rotation){
+			foreach(["x", "y", "z"] as $axis){
+				$transformed = $clipboard->flip($axis)->rotate($rotation)->flip("x");
+				$bounds = $transformed->relativeBounds();
+				$positions = iterator_to_array($transformed->coordinates());
+				$dimensions = [];
+				for($coordinate = 0; $coordinate < 3; ++$coordinate){
+					$values = array_column($positions, $coordinate);
+					self::assertSame(min($values), $bounds["min"][$coordinate]);
+					self::assertSame(max($values), $bounds["max"][$coordinate]);
+					$dimensions[] = $bounds["max"][$coordinate] - $bounds["min"][$coordinate] + 1;
+				}
+				self::assertSame($rotation % 180 === 0 ? [2, 3, 4] : [4, 3, 2], $dimensions);
+				self::assertSame(24, array_product($dimensions));
+			}
+		}
 	}
 
 	public function testStateTransformIsNormalizedAndCachedPerState() : void{

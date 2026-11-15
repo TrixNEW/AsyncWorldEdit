@@ -106,10 +106,12 @@ final class Commands{
 				$session->shape = $shape;
 			}
 			$player->sendMessage('Selector: ' . $shape);
+			$this->plugin->refreshOutline($player);
 		});
 		$this->command('outline', 'Toggle selection outlines', 'selection', [], function(Player $player, CommandArgs $args) : void{
 			$session = $this->plugin->session($player);
 			$session->outline = !$session->outline;
+			$this->plugin->refreshOutline($player);
 			$player->sendMessage('Selection outlines ' . ($session->outline ? 'enabled' : 'disabled'));
 		});
 		foreach(['expand', 'contract', 'shift'] as $mode){
@@ -262,11 +264,13 @@ final class Commands{
 				$candidate = null;
 				$steps = ClipboardOperations::capture($world, $region, $pivot, $this->editor->settings->clipboardBlocks, static function(Clipboard $clipboard) use (&$candidate) : void{
 					$candidate = $clipboard;
-				}, $mode === 'cut', $this->states->air());
+				}, $mode === 'cut', $this->states->air(), $session->mask, function(Clipboard $clipboard) use ($session) : void{
+					$this->plugin->reserveClipboard($session, $clipboard);
+				});
 				$this->plugin->submit($player, $world, $steps, $region->volume() * ($mode === 'cut' ? 2 : 1), $region, function(Job $job) use ($session, &$candidate) : void{
-					if($job->status === 'completed' && $job->conflicts === 0 && $candidate !== null){
-						$this->plugin->setClipboard($session, $candidate);
-					}
+					try{
+						if($job->status === 'completed' && $job->conflicts === 0 && $candidate !== null){ $this->plugin->setClipboard($session, $candidate); }
+					}finally{ $this->plugin->releaseClipboard($session); }
 				});
 			});
 		}
@@ -311,7 +315,7 @@ final class Commands{
 					$clipboard = null;
 					yield from ClipboardOperations::capture($world, $region, [0, 0, 0], $this->editor->settings->clipboardBlocks, static function(Clipboard $capturedClipboard) use (&$clipboard) : void{
 						$clipboard = $capturedClipboard;
-					}, $mode === 'move', $this->states->air());
+					}, $mode === 'move', $this->states->air(), $mask);
 					if(!$clipboard instanceof Clipboard){
 						throw new \LogicException('Clipboard capture did not complete');
 					}

@@ -10,7 +10,7 @@ final class Syntax{
 
 	/** @return list<string> */
 	public static function tokenize(string $input, bool $mask = false) : array{
-		if(trim($input) === "" || strlen($input) > 4096){
+		if(strlen($input) > 4096 || trim($input) === ""){
 			throw new InvalidArgumentException("Expression must contain between 1 and 4096 bytes");
 		}
 		$tokens = [];

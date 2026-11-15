@@ -25,6 +25,7 @@ use quark\math\Vector3;
 use quark\player\Player;
 use quark\plugin\PluginBase;
 use quark\scheduler\ClosureTask;
+use quark\scheduler\TaskHandler;
 use quark\world\World;
 
 final class Main extends PluginBase{
@@ -34,22 +35,48 @@ final class Main extends PluginBase{
 	private SchematicService $schematics;
 	/** @var array<string,Session> */
 	private array $sessions = [];
-	private int $outlineCursor = 0;
+	/** @var TaskHandler<ClosureTask>|null */
+	private ?TaskHandler $editTask = null;
+	/** @var TaskHandler<ClosureTask>|null */
+	private ?TaskHandler $workerTask = null;
+	/** @var TaskHandler<ClosureTask>|null */
+	private ?TaskHandler $outlineTask = null;
+	/** @var array<string,Player> */
+	private array $outlineViewers = [];
+	/** @var array<int,Clipboard> */
+	private array $clipboardReservations = [];
+	private bool $closing = false;
 
 	protected function onEnable() : void{
-		$this->editor = new Editor(Settings::fromArray($this->getConfig()->getAll()));
+		$this->closing = false;
+		$this->editor = new Editor(Settings::fromArray($this->getConfig()->getAll()), $this->editActivity(...));
 		$this->states = new BlockStates();
-		$this->schematics = new SchematicService($this->getDataFolder() . 'schematics', $this->editor->settings->workers, $this->getServer()->getTickSleeper());
+		$this->schematics = new SchematicService($this->getDataFolder() . 'schematics', $this->editor->settings->workers, $this->getServer()->getTickSleeper(), $this->workerActivity(...));
 		(new Commands($this, $this->editor, $this->states, $this->schematics))->register();
 		$this->getServer()->getPluginManager()->registerEvents(new Tools($this), $this);
-		$this->getScheduler()->scheduleRepeatingTask(new ClosureTask(function() : void{
-			$this->editor->tick();
-			$this->schematics->tick();
-			$this->outlines();
-		}), 1);
+	}
+
+	private function editActivity(bool $active) : void{
+		if(!$active || $this->closing){
+			if($this->editTask !== null){ $this->getScheduler()->cancelTask($this->editTask); $this->editTask = null; }
+		}elseif($this->editTask === null){
+			$this->editTask = $this->getScheduler()->scheduleRepeatingTask(new ClosureTask($this->editor->tick(...)), 1);
+		}
+	}
+
+	private function workerActivity(bool $active) : void{
+		if(!$active || $this->closing){
+			if($this->workerTask !== null){ $this->getScheduler()->cancelTask($this->workerTask); $this->workerTask = null; }
+		}elseif($this->workerTask === null){
+			$this->workerTask = $this->getScheduler()->scheduleDelayedRepeatingTask(new ClosureTask($this->schematics->tick(...)), 20, 20);
+		}
 	}
 
 	protected function onDisable() : void{
+		$this->closing = true;
+		$this->editActivity(false);
+		$this->workerActivity(false);
+		if($this->outlineTask !== null){ $this->getScheduler()->cancelTask($this->outlineTask); $this->outlineTask = null; }
 		if(isset($this->editor)){
 			$this->editor->shutdown();
 		}
@@ -57,6 +84,8 @@ final class Main extends PluginBase{
 			$this->schematics->shutdown();
 		}
 		$this->sessions = [];
+		$this->outlineViewers = [];
+		$this->clipboardReservations = [];
 	}
 
 	public function getEditor() : Editor{
@@ -76,16 +105,33 @@ final class Main extends PluginBase{
 	}
 
 	public function setClipboard(Session $session, ?Clipboard $clipboard) : void{
+		$reserved = $this->clipboardReservations[spl_object_id($session)] ?? null;
+		if($reserved !== null && $reserved !== $clipboard){ throw new \RuntimeException('Clipboard is busy'); }
+		$this->checkClipboardCapacity($session, $clipboard);
+		$session->clipboard = $clipboard;
+	}
+
+	private function checkClipboardCapacity(Session $session, ?Clipboard $clipboard) : void{
 		$bytes = $clipboard?->bytes() ?? 0;
 		foreach($this->sessions as $other){
 			if($other !== $session){
-				$bytes += $other->clipboard?->bytes() ?? 0;
+				$current = $other->clipboard?->bytes() ?? 0;
+				$reserved = $this->clipboardReservations[spl_object_id($other)] ?? null;
+				$bytes += max($current, $reserved?->bytes() ?? 0);
 			}
 		}
 		if($bytes > $this->editor->settings->clipboardBytes){
 			throw new \RuntimeException('Clipboard unchanged: global clipboard memory limit exceeded');
 		}
-		$session->clipboard = $clipboard;
+	}
+
+	public function reserveClipboard(Session $session, Clipboard $clipboard) : void{
+		$this->checkClipboardCapacity($session, $clipboard);
+		$this->clipboardReservations[spl_object_id($session)] = $clipboard;
+	}
+
+	public function releaseClipboard(Session $session) : void{
+		unset($this->clipboardReservations[spl_object_id($session)]);
 	}
 
 	public function select(Player $player, int $corner, Vector3 $position) : void{
@@ -105,7 +151,7 @@ final class Main extends PluginBase{
 		}else{
 			$session->second = $point;
 		}
-		$session->outlineTick = -20;
+		$this->refreshOutline($player);
 		$player->sendMessage('Position ' . $corner . ': ' . implode(', ', $point));
 	}
 
@@ -117,6 +163,9 @@ final class Main extends PluginBase{
 		}
 		$this->editor->forget($owner);
 		unset($this->sessions[$owner]);
+		if($session !== null){ $this->releaseClipboard($session); }
+		unset($this->outlineViewers[$owner]);
+		$this->scheduleOutlines();
 	}
 
 	public function worldUnloaded(World $world) : void{
@@ -127,10 +176,17 @@ final class Main extends PluginBase{
 				$session->first = $session->second = null;
 			}
 		}
+		foreach($this->outlineViewers as $player){ $this->refreshOutline($player); }
+		if(!$this->closing){
+			$this->getScheduler()->scheduleDelayedTask(new ClosureTask(function() use ($world, $worldId) : void{
+				if(!$world->isLoaded()){ $this->editor->forgetWorld($worldId); }
+			}), 1);
+		}
 	}
 
 	public function isBrush(Player $player, Item $item) : bool{
-		return $player->hasPermission('asyncworldedit.brush') && $this->session($player)->brushItem === $item->getTypeId();
+		$session = $this->sessions[$player->getUniqueId()->toString()] ?? null;
+		return $session !== null && $player->hasPermission('asyncworldedit.brush') && $session->brushItem === $item->getTypeId();
 	}
 
 	public function useBrush(Player $player) : void{
@@ -163,19 +219,43 @@ final class Main extends PluginBase{
 		}
 	}
 
-	private function outlines() : void{
-		$players = array_values($this->getServer()->getOnlinePlayers());
-		if($players === []){
-			return;
-		}
-		$player = $players[$this->outlineCursor++ % count($players)];
+	public function refreshOutline(Player $player) : void{
+		$owner = $player->getUniqueId()->toString();
+		$session = $this->sessions[$owner] ?? null;
+		if(!$this->closing && $player->isConnected() && $session !== null && $session->outline && $session->first !== null && $session->second !== null && $session->worldId === $this->world($player->getWorld())->id() && $player->hasPermission('asyncworldedit.selection')){
+			$this->outlineViewers[$owner] = $player;
+		}else{ unset($this->outlineViewers[$owner]); }
+		$this->scheduleOutlines();
+	}
+
+	public function outlineAfterTeleport(Player $player) : void{
 		$session = $this->sessions[$player->getUniqueId()->toString()] ?? null;
-		if($session === null || !$session->outline || !$player->hasPermission('asyncworldedit.selection') || $this->getServer()->getTick() - $session->outlineTick < 20){
-			return;
+		if($this->closing || $session === null || !$session->outline || $session->second === null){ return; }
+		$this->getScheduler()->scheduleDelayedTask(new ClosureTask(function() use ($player) : void{ $this->refreshOutline($player); }), 1);
+	}
+
+	private function scheduleOutlines() : void{
+		$count = count($this->outlineViewers);
+		$period = $count === 0 ? 0 : max(1, (int) ceil(20 / $count));
+		if($this->outlineTask !== null && $this->outlineTask->getPeriod() !== $period){
+			$this->getScheduler()->cancelTask($this->outlineTask);
+			$this->outlineTask = null;
 		}
-		$session->outlineTick = $this->getServer()->getTick();
+		if($period > 0 && $this->outlineTask === null){
+			$this->outlineTask = $this->getScheduler()->scheduleDelayedRepeatingTask(new ClosureTask($this->outlines(...)), $period, $period);
+		}
+	}
+
+	private function outlines() : void{
+		$player = current($this->outlineViewers);
+		if($player === false){ $player = reset($this->outlineViewers); }
+		if($player === false){ return; }
+		next($this->outlineViewers);
+		$this->refreshOutline($player);
+		$owner = $player->getUniqueId()->toString();
+		if(!isset($this->outlineViewers[$owner])){ return; }
 		try{
-			SelectionOutline::send($player, $session->selection($this->world($player->getWorld())->id()));
+			SelectionOutline::send($player, $this->sessions[$owner]->selection($this->world($player->getWorld())->id()));
 		}catch(\RuntimeException|\InvalidArgumentException){
 		}
 	}
@@ -213,7 +293,7 @@ final class Main extends PluginBase{
 		$steps = match($mode){
 			'overlay' => TerrainOperations::overlay($world, $region, $pattern ?? throw new \InvalidArgumentException('A pattern is required'), null, $air, $this->session($player)->seed),
 			'naturalize' => TerrainOperations::naturalize($world, $region, $this->states->resolve('grass'), $this->states->resolve('dirt'), $this->states->resolve('stone'), $air),
-			'smooth' => TerrainOperations::smooth($world, $region, $air),
+			'smooth' => TerrainOperations::smooth($world, $region, $air, $this->editor->settings->clipboardBlocks),
 			default => throw new \InvalidArgumentException('Unknown terrain operation'),
 		};
 		if($mode === 'smooth' && $region->volume() > $this->editor->settings->clipboardBlocks){
