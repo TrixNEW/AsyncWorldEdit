@@ -71,7 +71,7 @@ final class Operations{
 		$counts = [];
 		foreach($region->positions() as [$x, $y, $z]){
 			$world->acquire($x >> 4, $z >> 4);
-			$state = $world->read($x, $y, $z)->state;
+			$state = $world->stateAt($x, $y, $z);
 			if($mask === null || $mask->matches($state)){
 				$counts[$state] = ($counts[$state] ?? 0) + 1;
 			}

@@ -116,9 +116,13 @@ final class Clipboard{
 			$ry = $y + $offsetY;
 			for($z = 0; $z < $this->length; ++$z){
 				$rz = $z + $offsetZ;
-				$row = unpack('V' . $width, $this->states, $index * 4) ?: throw new \LogicException('Invalid packed clipboard state');
+				$row = [];
 				for($x = 0; $x < $width; ++$x, ++$index){
-					$state = $row[$x + 1];
+					// Unpack in runs of 1024 so a very wide clipboard never builds a huge temporary array.
+					if(($x & 1023) === 0){
+						$row = unpack('V' . min(1024, $width - $x), $this->states, $index * 4) ?: throw new \LogicException('Invalid packed clipboard state');
+					}
+					$state = $row[($x & 1023) + 1];
 					if($transformState !== null){
 						$state = $states[$state] ??= $transformState($state, $turns, $flipX, $flipY, false);
 					}

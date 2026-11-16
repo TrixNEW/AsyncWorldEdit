@@ -33,6 +33,7 @@ use quark\world\World;
 final class QuarkWorld implements WorldAccess{
 	private const STATE_CACHE = 1024;
 	private const MAX_TILE_BYTES = 65536;
+	private const ITEM_BEARING = 'Item-bearing and inventory block entities are not supported by async edits because copying them duplicates stored contents';
 
 	private ?ChunkLoader $loader = null;
 	private ?Chunk $chunk = null;
@@ -96,10 +97,14 @@ final class QuarkWorld implements WorldAccess{
 		$this->chunk = null;
 	}
 
+	public function stateAt(int $x, int $y, int $z) : int{
+		return $this->chunk($x, $y, $z)->getBlockStateId($x & 15, $y, $z & 15);
+	}
+
 	public function read(int $x, int $y, int $z) : BlockValue{
 		$chunk = $this->chunk($x, $y, $z);
 		$state = $this->primaryState($chunk, $x, $y, $z);
-		$tileClass = $this->state($state)[1];
+		$tileClass = $this->info($state)[1];
 		$tile = $chunk->getTile($x & 15, $y, $z & 15);
 		if($tile === null){
 			return BlockValue::of($state);
@@ -118,10 +123,10 @@ final class QuarkWorld implements WorldAccess{
 			return null;
 		}
 		$oldTile = $chunk->getTile($x & 15, $y, $z & 15);
-		if(($oldTile !== null || $expected->nbt !== null || $this->state($current)[1] !== null) && !$this->read($x, $y, $z)->equals($expected)){
+		if(($oldTile !== null || $expected->nbt !== null || $this->info($current)[1] !== null) && !$this->read($x, $y, $z)->equals($expected)){
 			return null;
 		}
-		[$block, $tileClass] = $this->state($value->state);
+		[$block, $tileClass] = $this->info($value->state);
 		$tag = null;
 		if($value->nbt !== null){
 			$tag = $this->prepareTile($value->state, $tileClass, $value->nbt);
@@ -168,7 +173,7 @@ final class QuarkWorld implements WorldAccess{
 	}
 
 	/** @return array{Block, class-string<Tile>|null} */
-	private function state(int $state) : array{
+	private function info(int $state) : array{
 		$info = $this->states[$state] ?? $this->describe($state);
 		return is_string($info) ? throw new \InvalidArgumentException($info) : $info;
 	}
@@ -210,8 +215,6 @@ final class QuarkWorld implements WorldAccess{
 		}
 		return $tag;
 	}
-
-	private const ITEM_BEARING = 'Item-bearing and inventory block entities are not supported by async edits because copying them duplicates stored contents';
 
 	private static function isItemBearing(?string $tileClass) : bool{
 		return $tileClass !== null && (is_a($tileClass, InventoryHolder::class, true) || is_a($tileClass, ItemFrame::class, true) || is_a($tileClass, Jukebox::class, true) || is_a($tileClass, Lectern::class, true));

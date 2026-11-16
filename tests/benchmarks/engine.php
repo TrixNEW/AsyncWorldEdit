@@ -37,6 +37,7 @@ abstract class PackedWorld{
 	public function acquire(int $chunkX, int $chunkZ) : void{}
 	public function release() : void{}
 	protected function index(int $x, int $y, int $z) : int{ return (($y * SIZE + $z) * SIZE + $x) * 4; }
+	public function stateAt(int $x, int $y, int $z) : int{ return unpack('V', $this->states, $this->index($x, $y, $z))[1]; }
 	public function read(int $x, int $y, int $z) : BlockValue{
 		$state = unpack('V', $this->states, $this->index($x, $y, $z))[1];
 		return method_exists(BlockValue::class, 'of') ? BlockValue::of($state) : new BlockValue($state);

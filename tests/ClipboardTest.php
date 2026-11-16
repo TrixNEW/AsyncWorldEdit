@@ -173,4 +173,15 @@ final class ClipboardTest extends TestCase{
 		$this->expectException(OutOfBoundsException::class);
 		self::sample()->at(-1, 0, 0);
 	}
+
+	public function testWideRowsAreReadAcrossUnpackRuns() : void{
+		$width = 2500;
+		$clipboard = new Clipboard($width, 2, 1, pack("V*", ...range(1, $width * 2)));
+		$index = 0;
+		foreach($clipboard->blocks() as [$x, $y, $z, $value]){
+			self::assertSame([$index % $width, intdiv($index, $width), 0], [$x, $y, $z]);
+			self::assertSame(++$index, $value->state);
+		}
+		self::assertSame($width * 2, $index);
+	}
 }

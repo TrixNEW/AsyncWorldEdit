@@ -18,6 +18,9 @@ interface WorldAccess{
 
 	public function release() : void;
 
+	/** Primary-layer state only, without the block entity checks read() makes; for inspection, never as an expected value. */
+	public function stateAt(int $x, int $y, int $z) : int;
+
 	public function read(int $x, int $y, int $z) : BlockValue;
 
 	/**

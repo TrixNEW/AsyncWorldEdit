@@ -128,4 +128,18 @@ final class MainTest extends TestCase{
 		self::assertNull($task->getValue($outlines));
 		$scheduler->shutdown();
 	}
+
+	public function testMigratedConfigLoadsThroughQuarkToml() : void{
+		$path = sys_get_temp_dir() . "/awe-config-" . bin2hex(random_bytes(6)) . ".toml";
+		$migrated = Settings::migrate(["budgetMicros" => 900, "historyEntries" => 7, "blocksPerTick" => 64], (string) file_get_contents(dirname(__DIR__) . "/resources/config.toml"));
+		file_put_contents($path, (string) $migrated);
+		try{
+			$settings = Settings::fromConfig((new \quark\utils\Config($path, \quark\utils\Config::TOML))->getAll());
+			self::assertSame(900, $settings->budgetMicros);
+			self::assertSame(7, $settings->historyEntries);
+			self::assertSame(16, $settings->maxJobs);
+		}finally{
+			unlink($path);
+		}
+	}
 }

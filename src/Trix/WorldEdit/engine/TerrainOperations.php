@@ -21,7 +21,7 @@ final class TerrainOperations{
 				for($y = $region->maxY; $y >= $region->minY; --$y){
 					// Chunks are released at the end of each tick, so pin again after every yield.
 					$world->acquire($x >> 4, $z >> 4);
-					$top = $region->contains($x, $y, $z) && $world->read($x, $y, $z)->state !== $air;
+					$top = $region->contains($x, $y, $z) && $world->stateAt($x, $y, $z) !== $air;
 					yield null;
 					if(!$top){
 						continue;

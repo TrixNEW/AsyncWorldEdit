@@ -50,6 +50,8 @@ final class QuarkWorldAuditTest extends TestCase{
 				}catch(\InvalidArgumentException $e){
 					self::assertStringContainsString('not supported by async edits', $e->getMessage());
 				}
+				// Counting only needs the state, so it still works on blocks edits refuse.
+				self::assertSame($state, $adapter->stateAt(0, 64, 0));
 			}finally{
 				$adapter->release();
 			}

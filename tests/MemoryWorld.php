@@ -52,6 +52,10 @@ final class MemoryWorld implements WorldAccess{
 		}
 	}
 
+	public function stateAt(int $x, int $y, int $z) : int{
+		return $this->read($x, $y, $z)->state;
+	}
+
 	public function read(int $x, int $y, int $z) : BlockValue{
 		$this->checkPinned($x, $z);
 		return $this->blocks["$x:$y:$z"] ?? BlockValue::of(0);

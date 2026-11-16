@@ -75,7 +75,8 @@ final class Schematics{
 			return new SchematicData($width, $maxY - $minY + 1, $length, $packed, $palette, $origin, $tiles, 'mcstructure', $bedrock, metadata: $metadata, validateStates: false, formatVersion: 1);
 		})();
 		$this->edits->submit($player, $this->edits->world($player), $steps, $clipboard->volume(), null, then: function(Job $job) use ($player, $session, $name) : void{
-			if($job->status === JobStatus::Completed && $job->result instanceof SchematicData){
+			// A departed player's request was cancelled on disconnect, so do not start the file write.
+			if($job->status === JobStatus::Completed && $job->result instanceof SchematicData && $player->isConnected()){
 				$this->track($session, $this->files->save($name, $job->result), static fn() => $player->sendMessage('Schematic saved.'), 'Schematic export failed: ', $player);
 			}
 		});
