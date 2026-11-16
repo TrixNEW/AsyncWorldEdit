@@ -103,6 +103,38 @@ foreach([[8, 8, 8], [32, 32, 32], [128, 64, 128]] as [$w, $h, $l]){
 	$editor->forget('bench');
 }
 
+// Four players editing disjoint boxes at once: per-tick cost stays bounded and work is shared fairly.
+$world = new Bench();
+$jobs = [];
+for($owner = 0; $owner < 4; ++$owner){
+	$box = new Region($owner * 32, 0, 0, $owner * 32 + 31, 63, 31);
+	$steps = Operations::fill($world, $box, $stone);
+	$jobs[] = $legacy ? $editor->submit("player$owner", $world, $steps, $box->volume(), bounds: $box) : $editor->submit("player$owner", $world, $steps, $box->volume(), $box);
+}
+$ticks = [];
+$finished = [];
+$start = hrtime(true);
+for($tick = 0; count($finished) < 4; ++$tick){
+	$tickStart = hrtime(true);
+	$editor->tick();
+	$ticks[] = hrtime(true) - $tickStart;
+	foreach($jobs as $index => $job){
+		if($job->isFinished() && !isset($finished[$index])){
+			$finished[$index] = $tick;
+		}
+	}
+}
+sort($ticks);
+$results['4 concurrent fills of 65536 blocks'] = [
+	'ns_per_unit' => round((hrtime(true) - $start) / (4 * 65536), 1),
+	'tick_p95_ms' => round($ticks[(int) floor((count($ticks) - 1) * 0.95)] / 1e6, 3),
+	'tick_max_ms' => round(max($ticks) / 1e6, 3),
+	'finish_spread_ticks' => max($finished) - min($finished),
+];
+for($owner = 0; $owner < 4; ++$owner){
+	$editor->forget("player$owner");
+}
+
 $world = new Bench();
 $region = new Region(0, 0, 0, 63, 63, 63);
 measure($editor, submit($editor, $world, Operations::fill($world, $region, Pattern::parse('50%stone,50%dirt', static fn(string $name) : int => $name === 'stone' ? 1 : 2)), $region->volume(), $region, $legacy));

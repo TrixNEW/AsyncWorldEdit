@@ -58,7 +58,10 @@ $budget = getenv("AWE_BUDGET_MICROS") ?: "2000";
 if(!ctype_digit($budget) || (int) $budget < 100 || (int) $budget > 10000){
 	throw new RuntimeException("AWE_BUDGET_MICROS must be between 100 and 10000");
 }
-$pluginConfig = str_replace("budgetMicros = 2000", "budgetMicros = " . $budget, file_get_contents($root . "/resources/config.toml"));
+$pluginConfig = str_replace("budget-micros = 2000", "budget-micros = " . $budget, file_get_contents($root . "/resources/config.toml"), $replaced);
+if($replaced !== 1){
+	throw new RuntimeException("Plugin config.toml no longer contains budget-micros = 2000");
+}
 file_put_contents($pluginData . "/config.toml", $pluginConfig);
 $result = $runtime . "/data/integration-results.json";
 if(is_file($result)){

@@ -294,6 +294,9 @@ final class Integration extends PluginBase{
 				$this->editor->forget("benchmark");
 			}
 		}
+		// Let lighting from the benchmark edits drain before the 30 second functional steps resume.
+		$settle = $this->getServer()->getTick() + 20;
+		yield fn() : bool => $this->getServer()->getTick() >= $settle;
 		$this->stepTimeout = 30;
 
 		$persistent = new Region(-17, 100, -17, 16, 101, 16);
