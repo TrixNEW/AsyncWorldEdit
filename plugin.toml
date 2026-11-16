@@ -1,6 +1,6 @@
 name = "AsyncWorldEdit"
 main = "Trix\\WorldEdit\\Main"
-version = "0.1.2"
+version = "0.2.0"
 api = "6.0.0"
 description = "Chunk-oriented world editing for Quark 6"
 author = "TrixNEW"

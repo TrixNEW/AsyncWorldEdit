@@ -63,19 +63,19 @@ final class PatternTest extends TestCase{
 
 	public function testMaskPrecedenceNegationAndProperties() : void{
 		$mask = Mask::parse("stone,dirt&!#air", self::resolver(), self::solid());
-		self::assertTrue($mask->matches(0, 0, 0, 1));
-		self::assertTrue($mask->matches(0, 0, 0, 2));
-		self::assertFalse($mask->matches(0, 0, 0, 0));
+		self::assertTrue($mask->matches(1));
+		self::assertTrue($mask->matches(2));
+		self::assertFalse($mask->matches(0));
 		$nested = Mask::parse("!(stone,dirt)&(#solid,!#air)", self::resolver(), self::solid());
-		self::assertFalse($nested->matches(0, 0, 0, 1));
-		self::assertFalse($nested->matches(0, 0, 0, 2));
-		self::assertFalse($nested->matches(0, 0, 0, 0));
-		self::assertTrue($nested->matches(0, 0, 0, 3));
+		self::assertFalse($nested->matches(1));
+		self::assertFalse($nested->matches(2));
+		self::assertFalse($nested->matches(0));
+		self::assertTrue($nested->matches(3));
 		$property = Mask::parse('minecraft:oak_log["pillar_axis"="y","stripped_bit"=false],#air', self::resolver(), self::solid());
-		self::assertTrue($property->matches(0, 0, 0, 3));
-		self::assertTrue($property->matches(0, 0, 0, 0));
-		self::assertFalse($property->matches(0, 0, 0, 1));
-		self::assertTrue(Mask::parse("#air", self::resolver(), self::solid(), 9)->matches(0, 0, 0, 9));
+		self::assertTrue($property->matches(3));
+		self::assertTrue($property->matches(0));
+		self::assertFalse($property->matches(1));
+		self::assertTrue(Mask::parse("#air", self::resolver(), self::solid(), 9)->matches(9));
 	}
 
 	public function testQuotedPropertySeparatorsRemainUntouched() : void{
@@ -86,7 +86,7 @@ final class PatternTest extends TestCase{
 			return 5;
 		};
 		self::assertSame(5, Pattern::parse($block, $resolve)->choose(0, 0, 0, 0));
-		self::assertTrue(Mask::parse($block, $resolve, self::solid())->matches(0, 0, 0, 5));
+		self::assertTrue(Mask::parse($block, $resolve, self::solid())->matches(5));
 		self::assertSame([$block, $block], $seen);
 	}
 

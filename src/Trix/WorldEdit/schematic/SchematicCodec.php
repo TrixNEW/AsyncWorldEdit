@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Trix\WorldEdit\schematic;
 
 use InvalidArgumentException;
-use pocketmine\nbt\BigEndianNbtSerializer;
-use pocketmine\nbt\LittleEndianNbtSerializer;
 use pocketmine\nbt\NBT;
 use pocketmine\nbt\TreeRoot;
 use pocketmine\nbt\tag\ByteTag;
@@ -18,6 +16,7 @@ use Throwable;
 use UnexpectedValueException;
 
 final class SchematicCodec{
+	private const INDICES_PATH = ['structure', 'block_indices'];
 
 	public function __construct(
 		private int $maxFileBytes = 16777216,
@@ -42,12 +41,16 @@ final class SchematicCodec{
 		if(strlen($bytes) > $this->maxDecodedBytes){
 			throw new UnexpectedValueException("Decoded schematic exceeds size limit");
 		}
-		(new NbtGuard($bytes, $little, $this->maxNbtNodes))->validate();
+		// mcstructure block layers are read straight from the bytes instead of as two tags per block.
+		$guard = new NbtGuard($bytes, $little, $this->maxNbtNodes, $little ? self::INDICES_PATH : []);
+		$guard->validate();
 		try{
-			$serializer = $little ? new LittleEndianNbtSerializer() : new BigEndianNbtSerializer();
-			$offset = 0;
-			$root = $serializer->read($bytes, $offset, 48)->mustGetCompoundTag();
-			return $little ? $this->readBedrock($root) : $this->readSponge($root);
+			if(!$little){
+				return $this->readSponge(NbtCodec::read($bytes, false)->mustGetCompoundTag());
+			}
+			[$start, $payload, $end] = $guard->found ?? throw new UnexpectedValueException('mcstructure must contain block indices');
+			$root = NbtCodec::read(substr($bytes, 0, $start) . substr($bytes, $end), true)->mustGetCompoundTag();
+			return $this->readBedrock($root, substr($bytes, $payload, $end - $payload));
 		}catch(Throwable $e){
 			throw new UnexpectedValueException("Invalid schematic: " . $e->getMessage(), 0, $e);
 		}
@@ -63,13 +66,11 @@ final class SchematicCodec{
 		if(($little && $data->format !== "mcstructure") || (!$little && $data->format !== "sponge")){
 			throw new UnexpectedValueException("Cross-edition export requires an explicit lossless block and tile translator");
 		}
-		$serializer = $little ? new LittleEndianNbtSerializer() : new BigEndianNbtSerializer();
-		$root = $little ? $this->writeBedrock($data) : $this->writeSponge($data, $version);
-		$bytes = $serializer->write(new TreeRoot($root, !$little && $version === 2 ? "Schematic" : ""));
+		$bytes = $little ? $this->writeBedrock($data) : NbtCodec::write(new TreeRoot($this->writeSponge($data, $version), $version === 2 ? "Schematic" : ""), false);
 		if(strlen($bytes) > $this->maxDecodedBytes){
 			throw new UnexpectedValueException("Encoded schematic exceeds decoded size limit");
 		}
-		(new NbtGuard($bytes, $little, $this->maxNbtNodes))->validate();
+		(new NbtGuard($bytes, $little, $this->maxNbtNodes, $little ? self::INDICES_PATH : []))->validate();
 		if(!$little){
 			$bytes = gzencode($bytes);
 			if($bytes === false){
@@ -280,7 +281,8 @@ final class SchematicCodec{
 		return CompoundTag::create()->setTag("Schematic", $root);
 	}
 
-	private function readBedrock(CompoundTag $root) : SchematicData{
+	/** @param string $layers raw payload of structure.block_indices */
+	private function readBedrock(CompoundTag $root, string $layers) : SchematicData{
 		if($root->getInt("format_version") !== 1){
 			throw new UnexpectedValueException("Unsupported mcstructure version");
 		}
@@ -305,7 +307,6 @@ final class SchematicCodec{
 		$palette = [];
 		$bedrock = [];
 		foreach($entries as $entry){
-			$name = $entry->getString("name");
 			$properties = [];
 			foreach($entry->getCompoundTag("states") ?? throw new UnexpectedValueException("Missing typed Bedrock states") as $key => $value){
 				if(!$value instanceof ByteTag && !$value instanceof IntTag && !$value instanceof StringTag){
@@ -313,91 +314,106 @@ final class SchematicCodec{
 				}
 				$properties[] = $key . "=" . ($value instanceof StringTag ? json_encode($value->getValue(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) : $value->getValue());
 			}
-			$palette[] = $name . ($properties === [] ? "" : "[" . implode(",", $properties) . "]");
+			$palette[] = $entry->getString("name") . ($properties === [] ? "" : "[" . implode(",", $properties) . "]");
 			$bedrock[] = clone $entry;
 		}
-		$layers = $structure->getListTag("block_indices", ListTag::class);
-		if($layers === null || $layers->getCount() !== 2){
+
+		// A list of two int lists, each holding one palette index per block in XYZ order.
+		$layerBytes = 5 + $count * 4;
+		if(strlen($layers) !== 5 + 2 * $layerBytes || $layers[0] !== "\x09" || (unpack("V", $layers, 1)[1] ?? 0) !== 2){
 			throw new UnexpectedValueException("mcstructure must contain exactly two block layers");
 		}
-		$primary = $layers->get(0);
-		$secondary = $layers->get(1);
-		if($primary->getTagType() !== NBT::TAG_Int || $secondary->getTagType() !== NBT::TAG_Int || $primary->getCount() !== $count || $secondary->getCount() !== $count){
-			throw new UnexpectedValueException("Invalid mcstructure block layer dimensions");
+		foreach([5, 5 + $layerBytes] as $offset){
+			if($layers[$offset] !== "\x03" || (unpack("V", $layers, $offset + 1)[1] ?? -1) !== $count){
+				throw new UnexpectedValueException("Invalid mcstructure block layer dimensions");
+			}
 		}
+		if(strspn($layers, "\xff", 10 + $layerBytes, $count * 4) !== $count * 4){
+			throw new UnexpectedValueException("Secondary block layers require a multi-layer clipboard");
+		}
+		$paletteCount = count($palette);
 		$states = str_repeat("\0", $count * 4);
-		$tiles = [];
-		$positionData = $container->getCompoundTag("block_position_data") ?? CompoundTag::create();
-		foreach($secondary as $entry){
-			if($entry->getValue() !== -1){
-				throw new UnexpectedValueException("Secondary block layers require a multi-layer clipboard");
-			}
-		}
-		foreach($primary as $i => $entry){
-			$value = $entry->getValue();
-			if(!isset($palette[$value])){
-				throw new UnexpectedValueException("Missing structure blocks or palette references are unsupported");
-			}
-			$x = intdiv($i, $height * $length);
-			$y = intdiv($i, $length) % $height;
-			$z = $i % $length;
-			$index = ($y * $length + $z) * $width + $x;
-			$packed = pack("V", $value);
-			for($byte = 0; $byte < 4; ++$byte){
-				$states[$index * 4 + $byte] = $packed[$byte];
-			}
-			$position = $positionData->getCompoundTag((string) $i);
-			if($position !== null){
-				if($position->getCount() !== 1){
-					throw new UnexpectedValueException("Unsupported extra block position data");
+		$i = 0;
+		for($x = 0; $x < $width; ++$x){
+			for($y = 0; $y < $height; ++$y){
+				$row = unpack("V" . $length, $layers, 10 + $i * 4) ?: throw new UnexpectedValueException("Truncated mcstructure block layer");
+				for($z = 0; $z < $length; ++$z, ++$i){
+					if($row[$z + 1] >= $paletteCount){
+						throw new UnexpectedValueException("Missing structure blocks or palette references are unsupported");
+					}
+					$source = 10 + $i * 4;
+					$target = (($y * $length + $z) * $width + $x) * 4;
+					$states[$target] = $layers[$source];
+					$states[$target + 1] = $layers[$source + 1];
+					$states[$target + 2] = $layers[$source + 2];
+					$states[$target + 3] = $layers[$source + 3];
 				}
-				$tile = clone ($position->getCompoundTag("block_entity_data") ?? throw new UnexpectedValueException("Missing block entity data"));
-				$tile->setInt("x", $x)->setInt("y", $y)->setInt("z", $z);
-				$tiles[$index] = $tile;
 			}
 		}
-		if(count($tiles) !== $positionData->getCount()){
-			throw new UnexpectedValueException("Block position data references an invalid block");
+
+		$tiles = [];
+		foreach($container->getCompoundTag("block_position_data") ?? [] as $key => $position){
+			$key = (string) $key;
+			if(!$position instanceof CompoundTag || preg_match('/\A(?:0|[1-9][0-9]*)\z/', $key) !== 1 || (int) $key >= $count){
+				throw new UnexpectedValueException("Block position data references an invalid block");
+			}
+			if($position->getCount() !== 1){
+				throw new UnexpectedValueException("Unsupported extra block position data");
+			}
+			$i = (int) $key;
+			[$x, $y, $z] = [intdiv($i, $height * $length), intdiv($i, $length) % $height, $i % $length];
+			$tile = clone ($position->getCompoundTag("block_entity_data") ?? throw new UnexpectedValueException("Missing block entity data"));
+			$tiles[($y * $length + $z) * $width + $x] = $tile->setInt("x", $x)->setInt("y", $y)->setInt("z", $z);
 		}
 		$clipboardOrigin = $root->getTag('asyncworldedit_origin');
 		$metadata = $clipboardOrigin === null ? null : CompoundTag::create()->setTag('ClipboardOrigin', clone $clipboardOrigin);
-		return new SchematicData($width, $height, $length, $states, $palette, [$origin[0], $origin[1], $origin[2]], $tiles, "mcstructure", $bedrock, metadata: $metadata, formatVersion: 1);
+		return new SchematicData($width, $height, $length, $states, $palette, [$origin[0], $origin[1], $origin[2]], $tiles, "mcstructure", $bedrock, metadata: $metadata, validateStates: false, formatVersion: 1);
 	}
 
-	private function writeBedrock(SchematicData $data) : CompoundTag{
-		if($data->blockCount() * 2 > $this->maxNbtNodes){
-			throw new UnexpectedValueException("mcstructure exceeds NBT allocation limit");
-		}
+	private function writeBedrock(SchematicData $data) : string{
 		if(count($data->bedrockPalette) !== count($data->palette)){
 			throw new UnexpectedValueException("mcstructure export requires the original typed Bedrock palette");
 		}
-		$primary = [];
-		$positions = CompoundTag::create();
-		for($x = 0; $x < $data->width; ++$x){
-			for($y = 0; $y < $data->height; ++$y){
-				for($z = 0; $z < $data->length; ++$z){
-					$index = ($y * $data->length + $z) * $data->width + $x;
-					if(isset($data->tiles[$index])){
-						$tile = clone $data->tiles[$index];
-						$tile->setInt("x", $x + $data->origin[0])->setInt("y", $y + $data->origin[1])->setInt("z", $z + $data->origin[2]);
-						$positions->setTag((string) count($primary), CompoundTag::create()->setTag("block_entity_data", $tile));
-					}
-					$decoded = unpack("V", $data->states, $index * 4);
-					if($decoded === false || $decoded[1] >= count($data->palette)){
+		[$width, $height, $length] = [$data->width, $data->height, $data->length];
+		$count = $data->blockCount();
+		$paletteCount = count($data->palette);
+		$primary = str_repeat("\0", $count * 4);
+		$i = 0;
+		for($x = 0; $x < $width; ++$x){
+			for($y = 0; $y < $height; ++$y){
+				for($z = 0; $z < $length; ++$z, ++$i){
+					$source = (($y * $length + $z) * $width + $x) * 4;
+					if((unpack("V", $data->states, $source)[1] ?? PHP_INT_MAX) >= $paletteCount){
 						throw new UnexpectedValueException("Invalid packed schematic state");
 					}
-					$primary[] = new IntTag($decoded[1]);
+					$target = $i * 4;
+					$primary[$target] = $data->states[$source];
+					$primary[$target + 1] = $data->states[$source + 1];
+					$primary[$target + 2] = $data->states[$source + 2];
+					$primary[$target + 3] = $data->states[$source + 3];
 				}
 			}
 		}
+		$positions = CompoundTag::create();
+		foreach($data->tiles as $index => $tile){
+			[$x, $y, $z] = $this->position($index, $data);
+			$tile = (clone $tile)->setInt("x", $x + $data->origin[0])->setInt("y", $y + $data->origin[1])->setInt("z", $z + $data->origin[2]);
+			$positions->setTag((string) (($x * $height + $y) * $length + $z), CompoundTag::create()->setTag("block_entity_data", $tile));
+		}
 		$palette = CompoundTag::create()->setTag("block_palette", new ListTag($data->bedrockPalette, NBT::TAG_Compound))->setTag("block_position_data", $positions);
-		$structure = CompoundTag::create()->setTag("palette", CompoundTag::create()->setTag("default", $palette));
-		$structure->setTag("block_indices", new ListTag([new ListTag($primary, NBT::TAG_Int), new ListTag(array_fill(0, $data->blockCount(), new IntTag(-1)), NBT::TAG_Int)], NBT::TAG_List));
-		$structure->setTag("entities", new ListTag([], NBT::TAG_Compound));
-		$root = CompoundTag::create()->setInt("format_version", 1)->setTag("size", $this->makeIntList([$data->width, $data->height, $data->length]))->setTag("structure_world_origin", $this->makeIntList($data->origin))->setTag("structure", $structure);
+		$root = CompoundTag::create()->setInt("format_version", 1)->setTag("size", $this->makeIntList([$width, $height, $length]))->setTag("structure_world_origin", $this->makeIntList($data->origin));
 		$clipboardOrigin = $data->metadata?->getTag('ClipboardOrigin');
-		if($clipboardOrigin !== null){ $root->setTag('asyncworldedit_origin', clone $clipboardOrigin); }
-		return $root;
+		if($clipboardOrigin !== null){
+			$root->setTag('asyncworldedit_origin', clone $clipboardOrigin);
+		}
+		// structure goes last so block_indices can be spliced in just before the two closing tags.
+		$root->setTag("structure", CompoundTag::create()->setTag("palette", CompoundTag::create()->setTag("default", $palette))->setTag("entities", new ListTag([], NBT::TAG_Compound)));
+		$bytes = NbtCodec::write(new TreeRoot($root), true);
+		if(!str_ends_with($bytes, "\x00\x00")){
+			throw new \LogicException("Unexpected mcstructure encoding");
+		}
+		$layer = "\x03" . pack("V", $count);
+		return substr($bytes, 0, -2) . "\x09" . pack("v", 13) . "block_indices\x09" . pack("V", 2) . $layer . $primary . $layer . str_repeat("\xff", $count * 4) . "\x00\x00";
 	}
 
 	private function rejectEntities(CompoundTag $root, string $name) : void{

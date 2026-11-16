@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Trix\WorldEdit\tests;
 
-use Trix\WorldEdit\Session;
-use Trix\WorldEdit\clipboard\Clipboard;
-use Trix\WorldEdit\command\SchematicCommands;
+use Trix\WorldEdit\Schematics;
 use Trix\WorldEdit\schematic\SchematicCodec;
 use Trix\WorldEdit\schematic\SchematicData;
 use InvalidArgumentException;
@@ -15,7 +13,6 @@ use pocketmine\nbt\tag\CompoundTag;
 use quark\player\Player;
 use ReflectionClass;
 use ReflectionMethod;
-use ReflectionProperty;
 
 final class SchematicImportTest extends TestCase{
 
@@ -38,20 +35,16 @@ final class SchematicImportTest extends TestCase{
 		$loader = require dirname(__DIR__) . '/vendor/autoload.php';
 		$loader->unregister();
 		$loader->register(true);
-		$commands = (new ReflectionClass(SchematicCommands::class))->newInstanceWithoutConstructor();
-		$player = (new ReflectionClass(Player::class))->newInstanceWithoutConstructor();
-		(new ReflectionProperty(Player::class, 'closed'))->setValue($player, true);
-		(new ReflectionProperty(Player::class, 'logger'))->setValue($player, \GlobalLogger::get());
-		$session = new Session();
-		$clipboard = new Clipboard(1, 1, 1, pack('V', 1));
-		$session->clipboard = $clipboard;
+		$schematics = (new ReflectionClass(Schematics::class))->newInstanceWithoutConstructor();
+		$player = new class extends Player{
+			public function __construct(){}
+			public function __destruct(){}
+		};
 		try{
-			(new ReflectionMethod(SchematicCommands::class, 'importSchematic'))->invoke($commands, $player, $session, $this->javaBeacon());
-			self::fail('Accepted Java block entity data without a converter');
+			(new ReflectionMethod(Schematics::class, "import"))->invoke($schematics, $player, $this->javaBeacon());
+			self::fail("Accepted Java block entity data without a converter");
 		}catch(InvalidArgumentException $e){
-			self::assertStringContainsString('Java block entity conversion is not supported', $e->getMessage());
-			self::assertSame($clipboard, $session->clipboard);
-			self::assertNull($session->fileRequest);
+			self::assertStringContainsString("Java block entity conversion is not supported", $e->getMessage());
 		}
 	}
 

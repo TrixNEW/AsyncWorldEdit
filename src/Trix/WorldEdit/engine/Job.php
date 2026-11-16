@@ -5,24 +5,31 @@ declare(strict_types=1);
 namespace Trix\WorldEdit\engine;
 
 use Trix\WorldEdit\geometry\Region;
+use Trix\WorldEdit\pattern\Mask;
 
+/**
+ * Each yielded step is one unit of work: a block to write, or null for a read-only unit.
+ * A step without an expected value is checked against the block as it is when applied.
+ *
+ * @phpstan-type Step array{int, int, int, BlockValue, ?BlockValue}|null
+ * @phpstan-type Steps \Generator<int, Step, mixed, mixed>
+ */
 final class Job{
-	public string $status = 'queued';
+	public JobStatus $status = JobStatus::Queued;
 	public int $visited = 0;
 	public int $changed = 0;
 	public int $conflicts = 0;
 	public ?string $error = null;
-	public ?string $notificationError = null;
+	/** The operation generator's return value once it completes. */
+	public mixed $result = null;
 	public bool $cancelled = false;
-	public readonly int $submitted;
-	public ?int $finished = null;
 	public readonly ChangeSet $history;
-	/** @var \Closure(self):void|null */
-	private ?\Closure $completion;
+	/** @var array{ChangeSet, bool}|null the history entry and direction while undoing or redoing */
+	public ?array $restoring = null;
 
 	/**
-	 * @param \Generator<int, array{int,int,int,BlockValue,?BlockValue}|null, void, void> $steps
-	 * @param \Closure(self):void|null $completion
+	 * @param Steps $steps
+	 * @param (\Closure(self) : void)|null $onDone
 	 */
 	public function __construct(
 		public readonly int $id,
@@ -30,34 +37,35 @@ final class Job{
 		public readonly WorldAccess $world,
 		public ?\Generator $steps,
 		public readonly int $limit,
-		?\Closure $completion = null,
-		public readonly ?Region $bounds = null
+		public readonly ?Region $bounds = null,
+		public readonly ?Mask $mask = null,
+		public readonly bool $record = true,
+		private ?\Closure $onDone = null
 	){
-		$this->submitted = hrtime(true);
 		$this->history = new ChangeSet($world->id());
-		$this->completion = $completion;
 	}
 
 	public function cancel() : void{
 		$this->cancelled = true;
 	}
 
-	public function canContinue() : bool{
-		return !$this->isFinished() && !$this->cancelled && $this->world->isValid();
-	}
-
 	public function isFinished() : bool{
-		return $this->finished !== null;
+		return $this->status->isFinal();
 	}
 
-	public function complete(string $status, ?string $error = null) : void{
+	/** Marks a finished job as failed, for follow-up work that runs in its completion callback. */
+	public function fail(string $error) : void{
+		$this->status = JobStatus::Failed;
+		$this->error = $error;
+	}
+
+	/** @internal Settled exactly once by the editor. */
+	public function settle(JobStatus $status, ?string $error) : void{
 		$this->status = $status;
 		$this->error = $error;
-		$this->finished = hrtime(true);
 		$this->steps = null;
-		$callback = $this->completion;
-		$this->completion = null;
-		try{ $callback?->__invoke($this); }
-		catch(\Throwable $e){ $this->notificationError = $e->getMessage(); }
+		$onDone = $this->onDone;
+		$this->onDone = null;
+		$onDone?->__invoke($this);
 	}
 }
