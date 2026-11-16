@@ -35,19 +35,19 @@ final class ClipboardTest extends TestCase{
 
 	public function testRotationsAndFlipsPreservePivotOffsets() : void{
 		$clipboard = self::sample();
-		$original = iterator_to_array($clipboard->coordinates());
+		$original = iterator_to_array($clipboard->blocks());
 		self::assertSame([2, 1, -2], array_slice($original[0], 0, 3));
-		$turned = iterator_to_array($clipboard->rotate(90)->coordinates());
+		$turned = iterator_to_array($clipboard->rotate(90)->blocks());
 		self::assertSame([2, 1, 2], array_slice($turned[0], 0, 3));
 		self::assertSame([1, 2, 3], array_slice($turned[7], 0, 3));
-		self::assertEquals($original, iterator_to_array($clipboard->rotate(90)->rotate(90)->rotate(90)->rotate(90)->coordinates()));
-		self::assertEquals($original, iterator_to_array($clipboard->rotate(-90)->rotate(450)->coordinates()));
+		self::assertEquals($original, iterator_to_array($clipboard->rotate(90)->rotate(90)->rotate(90)->rotate(90)->blocks()));
+		self::assertEquals($original, iterator_to_array($clipboard->rotate(-90)->rotate(450)->blocks()));
 		foreach(["x", "y", "z"] as $axis){
-			self::assertEquals($original, iterator_to_array($clipboard->flip($axis)->flip($axis)->coordinates()));
+			self::assertEquals($original, iterator_to_array($clipboard->flip($axis)->flip($axis)->blocks()));
 		}
-		self::assertSame([-2, 1, 2], array_slice(iterator_to_array($clipboard->rotate(90)->flip("x")->coordinates())[0], 0, 3));
-		self::assertSame([2, 1, -2], array_slice(iterator_to_array($clipboard->flip("x")->rotate(90)->coordinates())[0], 0, 3));
-		self::assertEquals($original, iterator_to_array($clipboard->coordinates()));
+		self::assertSame([-2, 1, 2], array_slice(iterator_to_array($clipboard->rotate(90)->flip("x")->blocks())[0], 0, 3));
+		self::assertSame([2, 1, -2], array_slice(iterator_to_array($clipboard->flip("x")->rotate(90)->blocks())[0], 0, 3));
+		self::assertEquals($original, iterator_to_array($clipboard->blocks()));
 		self::assertSame($clipboard->states, $clipboard->rotate(90)->states);
 	}
 
@@ -56,7 +56,7 @@ final class ClipboardTest extends TestCase{
 		$bounds = $clipboard->bounds([10, 20, 30]);
 		self::assertSame([11, 18, 32, 12, 19, 33], [$bounds->minX, $bounds->minY, $bounds->minZ, $bounds->maxX, $bounds->maxY, $bounds->maxZ]);
 		self::assertSame($clipboard->volume(), $bounds->volume());
-		foreach($clipboard->coordinates() as [$x, $y, $z]){
+		foreach($clipboard->blocks() as [$x, $y, $z]){
 			self::assertTrue($bounds->contains($x + 10, $y + 20, $z + 30));
 		}
 		$this->expectException(InvalidArgumentException::class);
@@ -65,7 +65,7 @@ final class ClipboardTest extends TestCase{
 
 	public function testRelativeBoundsPreserveOffsetsBeyondWorldLimits() : void{
 		$clipboard = new Clipboard(1, 1, 1, pack("V", 1), [], [-30000000, 0, 0], [30000000, 0, 0]);
-		self::assertSame(["min" => [-60000000, 0, 0], "max" => [-60000000, 0, 0]], $clipboard->relativeBounds());
+		self::assertSame([[-60000000, 0, 0], [-60000000, 0, 0]], $clipboard->relativeBounds());
 		$worldBounds = $clipboard->bounds($clipboard->origin);
 		self::assertSame(-30000000, $worldBounds->minX);
 		self::assertSame(-30000000, $worldBounds->maxX);
@@ -78,13 +78,13 @@ final class ClipboardTest extends TestCase{
 			foreach(["x", "y", "z"] as $axis){
 				$transformed = $clipboard->flip($axis)->rotate($rotation)->flip("x");
 				$bounds = $transformed->relativeBounds();
-				$positions = iterator_to_array($transformed->coordinates());
+				$positions = iterator_to_array($transformed->blocks());
 				$dimensions = [];
 				for($coordinate = 0; $coordinate < 3; ++$coordinate){
 					$values = array_column($positions, $coordinate);
-					self::assertSame(min($values), $bounds["min"][$coordinate]);
-					self::assertSame(max($values), $bounds["max"][$coordinate]);
-					$dimensions[] = $bounds["max"][$coordinate] - $bounds["min"][$coordinate] + 1;
+					self::assertSame(min($values), $bounds[0][$coordinate]);
+					self::assertSame(max($values), $bounds[1][$coordinate]);
+					$dimensions[] = $bounds[1][$coordinate] - $bounds[0][$coordinate] + 1;
 				}
 				self::assertSame($rotation % 180 === 0 ? [2, 3, 4] : [4, 3, 2], $dimensions);
 				self::assertSame(24, array_product($dimensions));
@@ -101,7 +101,7 @@ final class ClipboardTest extends TestCase{
 					$transformed = $transformed->flip($axis);
 				}
 				$calls = [];
-				$positions = iterator_to_array($transformed->coordinates(static function(int $state, int $turns, bool $flipX, bool $flipY, bool $flipZ) use (&$calls) : int{
+				$positions = iterator_to_array($transformed->blocks(static function(int $state, int $turns, bool $flipX, bool $flipY, bool $flipZ) use (&$calls) : int{
 					$calls[] = [$state, $turns, $flipX, $flipY, $flipZ];
 					return $state + 10;
 				}));
@@ -139,7 +139,7 @@ final class ClipboardTest extends TestCase{
 
 	public function testDirectionalTileTransformsAreRejected() : void{
 		$clipboard = new Clipboard(1, 1, 1, pack("V", 1), [0 => "nbt"]);
-		self::assertSame("nbt", iterator_to_array($clipboard->rotate(360)->coordinates())[0][3]->nbt);
+		self::assertSame("nbt", iterator_to_array($clipboard->rotate(360)->blocks())[0][3]->nbt);
 		foreach([static fn() => $clipboard->rotate(90), static fn() => $clipboard->flip("x")] as $operation){
 			try{
 				$operation();
@@ -172,5 +172,16 @@ final class ClipboardTest extends TestCase{
 		}
 		$this->expectException(OutOfBoundsException::class);
 		self::sample()->at(-1, 0, 0);
+	}
+
+	public function testWideRowsAreReadAcrossUnpackRuns() : void{
+		$width = 2500;
+		$clipboard = new Clipboard($width, 2, 1, pack("V*", ...range(1, $width * 2)));
+		$index = 0;
+		foreach($clipboard->blocks() as [$x, $y, $z, $value]){
+			self::assertSame([$index % $width, intdiv($index, $width), 0], [$x, $y, $z]);
+			self::assertSame(++$index, $value->state);
+		}
+		self::assertSame($width * 2, $index);
 	}
 }

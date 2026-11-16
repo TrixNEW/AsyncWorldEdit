@@ -23,7 +23,7 @@ final class SchematicWorker extends Thread{
 	/** @var ThreadSafeArray<string, int> */
 	private ThreadSafeArray $control;
 
-	public function __construct(private string $directory, private SleeperHandlerEntry $sleeperEntry){
+	public function __construct(private string $directory, private int $maxBlocks, private SleeperHandlerEntry $sleeperEntry){
 		$this->requests = new ThreadSafeArray();
 		$this->results = new ThreadSafeArray();
 		$this->control = new ThreadSafeArray();
@@ -64,7 +64,7 @@ final class SchematicWorker extends Thread{
 
 	protected function onRun() : void{
 		$notifier = $this->sleeperEntry->createNotifier();
-		$codec = new SchematicCodec(maxBlocks: 500000);
+		$codec = new SchematicCodec(maxBlocks: $this->maxBlocks);
 		$store = null;
 		while(true){
 			$payload = $this->synchronized(function() : ?string{

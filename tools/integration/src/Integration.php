@@ -10,9 +10,11 @@ use Trix\WorldEdit\engine\BlockValue;
 use Trix\WorldEdit\engine\ClipboardOperations;
 use Trix\WorldEdit\engine\Editor;
 use Trix\WorldEdit\engine\Job;
+use Trix\WorldEdit\engine\JobStatus;
 use Trix\WorldEdit\engine\Operations;
 use Trix\WorldEdit\geometry\Region;
 use Trix\WorldEdit\pattern\Pattern;
+use Trix\WorldEdit\quark\Outlines;
 use Trix\WorldEdit\quark\QuarkWorld;
 use Trix\WorldEdit\schematic\SchematicCodec;
 use Trix\WorldEdit\schematic\SchematicData;
@@ -63,9 +65,9 @@ final class Integration extends PluginBase{
 					throw new \RuntimeException("AsyncWorldEdit did not enable");
 				}
 				$this->target = $plugin;
-				$this->editor = $plugin->getEditor();
+				$this->editor = $plugin->editor();
 				$this->world = $this->getServer()->getWorldManager()->getDefaultWorld() ?? throw new \RuntimeException("No default world");
-				$this->access = $plugin->world($this->world);
+				$this->access = new QuarkWorld($this->world);
 				$this->suite = $this->run();
 				$this->getScheduler()->scheduleRepeatingTask(new ClosureTask($this->advance(...)), 1);
 			}catch(\Throwable $error){
@@ -107,14 +109,14 @@ final class Integration extends PluginBase{
 	}
 
 	private function fill(Region $region, string $name = "stone", string $owner = "integration") : Job{
-		$pattern = Pattern::parse($name, $this->target->getBlockStates()->resolve(...));
+		$pattern = Pattern::parse($name, $this->target->edits()->states->resolve(...));
 		return $this->editor->submit($owner, $this->access, Operations::fill($this->access, $region, $pattern), $region->volume(), bounds: $region);
 	}
 
 	private function await(Job $job) : \Closure{
 		return static function() use ($job) : bool{
 			if(!$job->isFinished()){ return false; }
-			if($job->status !== "completed"){ throw new \RuntimeException("Job {$job->id}: {$job->status}: {$job->error}"); }
+			if($job->status !== JobStatus::Completed){ throw new \RuntimeException("Job {$job->id}: {$job->status->value}: {$job->error}"); }
 			return true;
 		};
 	}
@@ -136,12 +138,14 @@ final class Integration extends PluginBase{
 		$arguments = $command->getSyntaxes()[0]->getArguments();
 		$this->check(count($arguments) === 1 && $arguments[0] instanceof MappedArgument, "Set command uses a typed pattern argument");
 		$this->check($this->target->getDescription()->getCompatibleApis() === ["6.0.0"], "Manifest declares Quark API 6");
-		foreach(['editTask','workerTask','outlineTask'] as $property){
-			$this->check((new \ReflectionProperty(Main::class,$property))->getValue($this->target) === null, 'Idle plugin has no ' . $property);
+		$this->commandChecks();
+		foreach(['editTask', 'workerTask'] as $property){
+			$this->check((new \ReflectionProperty(Main::class, $property))->getValue($this->target) === null, 'Idle plugin has no ' . $property);
 		}
-		$service = (new \ReflectionProperty(Main::class,'schematics'))->getValue($this->target);
+		$this->check((new \ReflectionProperty(Outlines::class, 'task'))->getValue($this->target->outlines()) === null, 'Idle plugin has no outline task');
+		$service = (new \ReflectionProperty(Main::class, 'files'))->getValue($this->target);
 		$workerError = null;
-		$service->load('missing-audit-file.schem',static function(?SchematicData $data,?string $error) use (&$workerError) : void{ $workerError = $error; });
+		$service->load('missing-audit-file.schem')->observe(null, static function(\Throwable $error) use (&$workerError) : void{ $workerError = $error->getMessage(); });
 		$this->check((new \ReflectionProperty(Main::class,'workerTask'))->getValue($this->target) !== null, 'Pending schematic request wakes its watchdog');
 		yield static function() use (&$workerError) : bool{ return $workerError !== null; };
 		$this->check((new \ReflectionProperty(Main::class,'workerTask'))->getValue($this->target) === null && !$service->hasPending(), 'Schematic completion stops its watchdog');
@@ -210,7 +214,7 @@ final class Integration extends PluginBase{
 		yield fn() : bool => $job->changed > 0;
 		$job->cancel();
 		yield static fn() : bool => $job->isFinished();
-		$this->check($job->status === "cancelled" && $job->changed > 0 && $job->changed < $cancelRegion->volume(), "Cancellation preserves partial undoable work");
+		$this->check($job->status === JobStatus::Cancelled && $job->changed > 0 && $job->changed < $cancelRegion->volume(), "Cancellation preserves partial undoable work");
 		$undo = $this->editor->restore("cancel", $this->access);
 		yield $this->await($undo);
 		$retry = $this->fill($cancelRegion, "dirt", "cancel");
@@ -275,11 +279,26 @@ final class Integration extends PluginBase{
 					"editor_max_tick_ns" => $samples === [] ? 0 : max($samples), "editor_ticks" => count($samples),
 					"tps_average" => $this->getServer()->getTicksPerSecondAverage(), "php_peak_bytes" => memory_get_peak_usage(true)
 				];
+				$this->tickSamples = [];
+				$this->sampling = true;
+				$start = hrtime(true);
+				$undo = $this->editor->restore("benchmark", $this->access);
+				yield $this->await($undo);
+				$this->sampling = false;
+				$this->check($undo->changed === $box->volume(), "Benchmark " . $box->volume() . " repeat " . ($repeat + 1) . " undoes all cells");
+				$this->benchmarks[array_key_last($this->benchmarks)] += [
+					"undo_wall_ns" => hrtime(true) - $start, "undo_editor_ns" => array_sum($this->tickSamples),
+					"undo_max_tick_ns" => $this->tickSamples === [] ? 0 : max($this->tickSamples), "undo_ticks" => count($this->tickSamples)
+				];
 				$this->checkpoint();
 				$this->editor->forget("benchmark");
 			}
 		}
-		$this->stepTimeout = 30;
+		// Let lighting from the benchmark edits drain before the 30 second functional steps resume.
+		$settle = $this->getServer()->getTick() + 20;
+		yield fn() : bool => $this->getServer()->getTick() >= $settle;
+		// A million-block edit and its undo leave minutes of lighting work behind.
+		$this->stepTimeout = getenv("AWE_ONLY_MILLION") === "1" ? 300 : 30;
 
 		$persistent = new Region(-17, 100, -17, 16, 101, 16);
 		$expected = $this->snapshot($persistent);
@@ -297,13 +316,17 @@ final class Integration extends PluginBase{
 		$this->check($manager->loadWorld($folder), "Edited world reloads from disk");
 		$this->world = $manager->getWorldByName($folder) ?? throw new \RuntimeException("Reloaded world missing");
 		$manager->setDefaultWorld($this->world);
-		$this->access = $this->target->world($this->world);
+		$this->access = new QuarkWorld($this->world);
 		for($cx = -2; $cx <= 1; ++$cx){ for($cz = -2; $cz <= 1; ++$cz){ $this->world->loadChunk($cx, $cz); } }
 		$this->check($this->snapshot($persistent) === $expected, "All edited runtime states persist across unload and reload");
-		$shutdown = $this->fill(new Region(-16, 250, -16, 15, 253, 15), "stone", "shutdown");
-		yield static fn() : bool => $shutdown->changed > 0;
+		// Glowstone, because the million-block benchmark leaves this box as stone.
+		$shutdown = $this->fill(new Region(-16, 250, -16, 15, 253, 15), "glowstone", "shutdown");
+		yield static fn() : bool => $shutdown->changed > 0 || $shutdown->isFinished();
+		if($shutdown->isFinished()){
+			throw new \RuntimeException("Shutdown probe ended early: {$shutdown->status->value}: {$shutdown->error}");
+		}
 		$this->editor->shutdown();
-		$this->check($shutdown->isFinished() && $shutdown->status === "cancelled" && $this->editor->active("shutdown") === null, "Shutdown cancels active work and settles ownership");
+		$this->check($shutdown->isFinished() && $shutdown->status === JobStatus::Cancelled && $this->editor->active("shutdown") === null, "Shutdown cancels active work and settles ownership");
 	}
 
 	private function tilesAndFluids() : \Generator{
@@ -333,7 +356,7 @@ final class Integration extends PluginBase{
 		};
 		$this->world->registerChunkListener($listener, 0, 0);
 		try{
-			$this->access->write(7, 140, 7, $note);
+			$this->access->write(7, 140, 7, $this->access->read(7, 140, 7), $note);
 			$restoredNote = $this->world->getBlockAt(7, 140, 7);
 			$this->check($restoredNote instanceof \quark\block\Note && $restoredNote->getPitch() === 17, 'Restored tile data refreshes blocks cached by chunk listeners');
 		}finally{
@@ -359,19 +382,52 @@ final class Integration extends PluginBase{
 		$water->set(4, 140 & 15, 4, $sub->getEmptyBlockId());
 	}
 
+	private function commandChecks() : void{
+		$map = $this->getServer()->getCommandMap();
+		$root = $map->getCommand("/we");
+		$this->check($root !== null && $map->getCommand("/worldedit") === $root, "Root //we command and //worldedit alias exist");
+		$permissions = [];
+		foreach($root->getSyntaxes() as $syntax){
+			$permissions[$syntax->getPath()] = $syntax->getPermission();
+		}
+		$expected = ["set" => "edit", "replace" => "edit", "sphere" => "edit", "move" => "edit", "cancel" => "edit", "copy" => "clipboard", "paste" => "clipboard",
+			"undo" => "history", "redo" => "history", "pos1" => "selection", "sel" => "selection", "count" => "selection", "brush sphere" => "brush",
+			"brush mask" => "brush", "brush range" => "brush", "schem load" => "schematic", "schem save" => "schematic"];
+		$matches = true;
+		foreach($expected as $path => $permission){
+			$matches = $matches && ($permissions[$path] ?? null) === "asyncworldedit." . $permission;
+		}
+		$this->check($matches, "Subcommands carry their domain permissions");
+		unset($permissions[""]);
+		$this->check(!in_array(null, $permissions, true), "Only the help syntax inherits the root permission");
+		$shortcuts = true;
+		foreach(["/set", "/replace", "/copy", "/paste", "/undo", "/wand", "/pos1", "/hcyl", "/schem", "/brush", "/mask", "/range"] as $name){
+			$command = $map->getCommand($name);
+			$shortcuts = $shortcuts && $command !== null && $command->getPreparedSyntaxes() !== null;
+		}
+		$this->check($shortcuts, "Familiar shortcuts are native syntax commands");
+		$schem = array_map(static fn($syntax) : string => $syntax->getPath(), $map->getCommand("/schem")->getSyntaxes());
+		$this->check($schem === ["load", "save"], "//schem keeps load and save subcommands");
+		$binding = null;
+		foreach($root->getPreparedSyntaxes() ?? [] as $syntax){
+			if($syntax->getPath() === "set"){
+				$binding = $syntax->getBinding();
+			}
+		}
+		$this->check($binding?->senderClass === \quark\player\Player::class, "Edit handlers are bound to players only");
+	}
+
 	private function schematicRoundTrip() : \Generator{
 		$log = VanillaBlocks::OAK_LOG()->setAxis(\quark\math\Axis::X);
 		$dirt = VanillaBlocks::DIRT();
 		$this->world->setBlockAt(-5, 130, -5, $log);
 		$this->world->setBlockAt(-4, 130, -5, $dirt);
 		$source = new Region(-5, 130, -5, -4, 130, -5);
-		$clipboard = null;
-		$copy = $this->editor->submit("schematic", $this->access, ClipboardOperations::capture($this->access, $source, [-6, 130, -5], 16, static function(Clipboard $value) use (&$clipboard) : void{
-			$clipboard = $value;
-		}, air: $this->target->getBlockStates()->air()), 2, record: false, bounds: $source);
+		$copy = $this->editor->submit("schematic", $this->access, ClipboardOperations::capture($this->access, $source, [-6, 130, -5], 16, air: $this->target->edits()->states->air()), 2, $source, record: false);
 		yield $this->await($copy);
+		$clipboard = $copy->result;
 		$this->check($clipboard instanceof Clipboard, "Live source blocks copy into a packed clipboard");
-		$states = $this->target->getBlockStates();
+		$states = $this->target->edits()->states;
 		$runtimeStates = [$log->getStateId(), $dirt->getStateId()];
 		$palette = [];
 		$bedrock = [];
@@ -396,7 +452,7 @@ final class Integration extends PluginBase{
 		$pivot = [-8, 130, -8];
 		$bounds = $rotated->bounds($pivot);
 		$before = $this->snapshot($bounds);
-		$paste = $this->editor->submit("schematic", $this->access, ClipboardOperations::paste($this->access, $rotated, $pivot, stateTransform: $states->transform(...)), 2, bounds: $bounds);
+		$paste = $this->editor->submit("schematic", $this->access, ClipboardOperations::paste($this->access, $rotated, $pivot, transformState: $states->transform(...)), 2, bounds: $bounds);
 		yield $this->await($paste);
 		$this->check($this->world->getBlockAt(-8, 130, -7)->getStateId() === VanillaBlocks::OAK_LOG()->setAxis(\quark\math\Axis::Z)->getStateId() && $this->world->getBlockAt(-8, 130, -6)->getStateId() === $dirt->getStateId(), "Rotated schematic paste preserves pivot offsets and Bedrock axis states");
 		$undo = $this->editor->restore("schematic", $this->access);

@@ -5,35 +5,31 @@ declare(strict_types=1);
 namespace Trix\WorldEdit\engine;
 
 use Trix\WorldEdit\geometry\Region;
-use Trix\WorldEdit\pattern\Mask;
 use Trix\WorldEdit\pattern\Pattern;
-use Generator;
 
+/** @phpstan-import-type Steps from Job */
 final class TerrainOperations{
 
-	/** @return Generator<int, array{int, int, int, BlockValue, BlockValue}|null> */
-	public static function overlay(WorldAccess $world, Region $region, Pattern $pattern, ?Mask $mask = null, int $air = 0, int $seed = 0) : Generator{
+	/**
+	 * Places the pattern on top of the highest block of every column. Writes can reach one block above the region.
+	 *
+	 * @return Steps
+	 */
+	public static function overlay(WorldAccess $world, Region $region, Pattern $pattern, int $air = 0, int $seed = 0) : \Generator{
 		for($x = $region->minX; $x <= $region->maxX; ++$x){
 			for($z = $region->minZ; $z <= $region->maxZ; ++$z){
 				for($y = $region->maxY; $y >= $region->minY; --$y){
-					$top = false;
-					if($region->contains($x, $y, $z)){
-						$world->acquire($x >> 4, $z >> 4);
-						$top = $world->read($x, $y, $z)->state !== $air;
-					}
+					// Chunks are released at the end of each tick, so pin again after every yield.
+					$world->acquire($x >> 4, $z >> 4);
+					$top = $region->contains($x, $y, $z) && $world->stateAt($x, $y, $z) !== $air;
 					yield null;
 					if(!$top){
 						continue;
 					}
 					if($y + 1 < $world->maxY()){
 						$world->acquire($x >> 4, $z >> 4);
-						$expected = $world->read($x, $y + 1, $z);
-						if($expected->state === $air && ($mask === null || $mask->matches($x, $y + 1, $z, $expected->state))){
-							$value = new BlockValue($pattern->choose($x, $y + 1, $z, $expected->state, $seed));
-							yield [$x, $y + 1, $z, $value, $expected];
-						}else{
-							yield null;
-						}
+						$above = $world->read($x, $y + 1, $z);
+						yield $above->state === $air ? [$x, $y + 1, $z, BlockValue::of($pattern->choose($x, $y + 1, $z, $air, $seed)), $above] : null;
 					}
 					break;
 				}
@@ -41,11 +37,15 @@ final class TerrainOperations{
 		}
 	}
 
-	/** @return Generator<int, array{int, int, int, BlockValue, BlockValue}|null> */
-	public static function naturalize(WorldAccess $world, Region $region, int $grass, int $dirt, int $stone, int $air = 0) : Generator{
-		$grassValue = new BlockValue($grass);
-		$dirtValue = new BlockValue($dirt);
-		$stoneValue = new BlockValue($stone);
+	/**
+	 * Turns each column into grass, three blocks of dirt, then stone.
+	 *
+	 * @return Steps
+	 */
+	public static function naturalize(WorldAccess $world, Region $region, int $grass, int $dirt, int $stone, int $air = 0) : \Generator{
+		$grassValue = BlockValue::of($grass);
+		$dirtValue = BlockValue::of($dirt);
+		$stoneValue = BlockValue::of($stone);
 		for($x = $region->minX; $x <= $region->maxX; ++$x){
 			for($z = $region->minZ; $z <= $region->maxZ; ++$z){
 				$surface = null;
@@ -61,8 +61,7 @@ final class TerrainOperations{
 						continue;
 					}
 					$surface ??= $y;
-					$value = $y === $surface ? $grassValue : ($surface - $y <= 3 ? $dirtValue : $stoneValue);
-					yield [$x, $y, $z, $value, $expected];
+					yield [$x, $y, $z, $y === $surface ? $grassValue : ($surface - $y <= 3 ? $dirtValue : $stoneValue), $expected];
 				}
 			}
 		}
@@ -70,30 +69,31 @@ final class TerrainOperations{
 
 	/**
 	 * A 3x3 height average preserves caves below the surface.
-	 * @return Generator<int, array{int, int, int, BlockValue, BlockValue}|null>
+	 * @return Steps
 	 */
-	public static function smooth(WorldAccess $world, Region $region, int $air = 0, int $maxBlocks = 500000) : Generator{
-		if($region->volume() > $maxBlocks){ throw new \InvalidArgumentException('Smoothing exceeds snapshot limit'); }
-		$width = $region->maxX - $region->minX + 1;
-		$length = $region->maxZ - $region->minZ + 1;
-		$heightCount = $region->maxY - $region->minY + 1;
-		$columns = $width * $length;
-		$heights = str_repeat(pack("V", ($region->minY - 1) & 0xffffffff), $columns);
-		$states = str_repeat(pack("V", $air), $columns);
+	public static function smooth(WorldAccess $world, Region $region, int $air = 0, int $maxBlocks = 500000) : \Generator{
+		if($region->volume() > $maxBlocks){
+			throw new \InvalidArgumentException('Smoothing exceeds the snapshot limit');
+		}
+		[$width, $columnHeight, $length] = $region->size();
+		$heights = str_repeat(pack('V', $region->minY - 1), $width * $length);
+		$surfaces = str_repeat(pack('V', $air), $width * $length);
 		$snapshot = str_repeat(pack('V', $air), $region->volume());
 		for($x = $region->minX; $x <= $region->maxX; ++$x){
 			for($z = $region->minZ; $z <= $region->maxZ; ++$z){
-				$index = ($x - $region->minX) * $length + $z - $region->minZ;
+				$column = ($x - $region->minX) * $length + $z - $region->minZ;
 				$found = false;
 				for($y = $region->maxY; $y >= $region->minY; --$y){
 					if($region->contains($x, $y, $z)){
 						$world->acquire($x >> 4, $z >> 4);
 						$block = $world->read($x, $y, $z);
-						if($block->nbt !== null){ throw new \InvalidArgumentException('Smoothing does not support block entities'); }
-						self::setPacked($snapshot, $index * $heightCount + $y - $region->minY, $block->state);
+						if($block->nbt !== null){
+							throw new \InvalidArgumentException('Smoothing does not support block entities');
+						}
+						self::put($snapshot, $column * $columnHeight + $y - $region->minY, $block->state);
 						if(!$found && $block->state !== $air){
-							self::setPacked($heights, $index, $y & 0xffffffff);
-							self::setPacked($states, $index, $block->state);
+							self::put($heights, $column, $y);
+							self::put($surfaces, $column, $block->state);
 							$found = true;
 						}
 					}
@@ -101,57 +101,51 @@ final class TerrainOperations{
 				}
 			}
 		}
+		$airValue = BlockValue::of($air);
 		for($x = $region->minX; $x <= $region->maxX; ++$x){
 			for($z = $region->minZ; $z <= $region->maxZ; ++$z){
-				$index = ($x - $region->minX) * $length + $z - $region->minZ;
-				$height = self::height($heights, $index);
-				$state = self::packed($states, $index);
+				$column = ($x - $region->minX) * $length + $z - $region->minZ;
+				$height = self::signed(self::get($heights, $column));
+				$surface = self::get($surfaces, $column);
 				$sum = 0;
 				$count = 0;
 				for($nx = max($region->minX, $x - 1); $nx <= min($region->maxX, $x + 1); ++$nx){
 					for($nz = max($region->minZ, $z - 1); $nz <= min($region->maxZ, $z + 1); ++$nz){
-						$neighbor = ($nx - $region->minX) * $length + $nz - $region->minZ;
-						$sum += self::height($heights, $neighbor);
+						$neighbour = ($nx - $region->minX) * $length + $nz - $region->minZ;
+						$sum += self::signed(self::get($heights, $neighbour));
 						++$count;
-						if($state === $air){
-							$state = self::packed($states, $neighbor);
+						if($surface === $air){
+							$surface = self::get($surfaces, $neighbour);
 						}
 					}
 				}
 				$average = (int) floor($sum / $count);
 				if($average === $height){
 					yield null;
+					continue;
 				}
+				$value = $average < $height ? $airValue : BlockValue::of($surface);
 				for($y = min($height, $average) + 1, $end = max($height, $average); $y <= $end; ++$y){
-					if(!$region->contains($x, $y, $z)){
-						yield null;
-						continue;
-					}
-					$expected = new BlockValue(self::packed($snapshot, $index * $heightCount + $y - $region->minY));
-					$value = new BlockValue($average < $height ? $air : $state);
-					yield [$x, $y, $z, $value, $expected];
+					yield $region->contains($x, $y, $z) ? [$x, $y, $z, $value, BlockValue::of(self::get($snapshot, $column * $columnHeight + $y - $region->minY))] : null;
 				}
 			}
 		}
 	}
 
-	private static function setPacked(string &$buffer, int $index, int $value) : void{
-		$packed = pack("V", $value);
-		for($byte = 0; $byte < 4; ++$byte){
-			$buffer[$index * 4 + $byte] = $packed[$byte];
-		}
+	private static function put(string &$buffer, int $index, int $value) : void{
+		$packed = pack('V', $value);
+		$offset = $index * 4;
+		$buffer[$offset] = $packed[0];
+		$buffer[$offset + 1] = $packed[1];
+		$buffer[$offset + 2] = $packed[2];
+		$buffer[$offset + 3] = $packed[3];
 	}
 
-	private static function packed(string $buffer, int $index) : int{
-		$decoded = unpack("V", $buffer, $index * 4);
-		if($decoded === false){
-			throw new \LogicException("Invalid terrain heightmap");
-		}
-		return $decoded[1];
+	private static function get(string $buffer, int $index) : int{
+		return unpack('V', $buffer, $index * 4)[1] ?? throw new \LogicException('Invalid terrain snapshot');
 	}
 
-	private static function height(string $buffer, int $index) : int{
-		$height = self::packed($buffer, $index);
-		return $height >= 0x80000000 ? $height - 4294967296 : $height;
+	private static function signed(int $value) : int{
+		return ($value << 32) >> 32;
 	}
 }

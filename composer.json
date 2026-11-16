@@ -10,8 +10,9 @@
         "pocketmine/nbt": "~1.2.0"
     },
     "require-dev": {
+        "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^11.5",
-        "phpstan/phpstan": "^2.1"
+        "trixnew/vow": "dev-main"
     },
     "autoload": {
         "psr-4": {
@@ -27,5 +28,10 @@
     },
     "config": {
         "sort-packages": true
-    }
+    },
+    "repositories": [{
+        "name": "vow",
+        "type": "vcs",
+        "url": "https://github.com/TrixNEW/Vow"
+    }]
 }

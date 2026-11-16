@@ -27,8 +27,17 @@ final readonly class Mask{
 		return new self($test);
 	}
 
-	public function matches(int $x, int $y, int $z, int $state) : bool{
+	public function matches(int $state) : bool{
 		return ($this->test)($state);
+	}
+
+	public static function both(?self $first, ?self $second) : ?self{
+		if($first === null || $second === null){
+			return $first ?? $second;
+		}
+		$a = $first->test;
+		$b = $second->test;
+		return new self(static fn(int $state) : bool => $a($state) && $b($state));
 	}
 
 	/** @param list<string> $tokens */

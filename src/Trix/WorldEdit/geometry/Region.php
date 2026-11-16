@@ -48,6 +48,26 @@ final readonly class Region{
 		return $area * $height;
 	}
 
+	/** @return array{int, int, int} */
+	public function size() : array{
+		return [$this->maxX - $this->minX + 1, $this->maxY - $this->minY + 1, $this->maxZ - $this->minZ + 1];
+	}
+
+	/** Whether the point lies inside the bounding box, ignoring the shape. */
+	public function containsBox(int $x, int $y, int $z) : bool{
+		return $x >= $this->minX && $x <= $this->maxX && $y >= $this->minY && $y <= $this->maxY && $z >= $this->minZ && $z <= $this->maxZ;
+	}
+
+	public function intersects(self $other) : bool{
+		return $this->minX <= $other->maxX && $this->maxX >= $other->minX &&
+			$this->minY <= $other->maxY && $this->maxY >= $other->minY &&
+			$this->minZ <= $other->maxZ && $this->maxZ >= $other->minZ;
+	}
+
+	public function union(self $other) : self{
+		return new self(min($this->minX, $other->minX), min($this->minY, $other->minY), min($this->minZ, $other->minZ), max($this->maxX, $other->maxX), max($this->maxY, $other->maxY), max($this->maxZ, $other->maxZ));
+	}
+
 	public function contains(int $x, int $y, int $z) : bool{
 		if($x < $this->minX || $x > $this->maxX || $y < $this->minY || $y > $this->maxY || $z < $this->minZ || $z > $this->maxZ){
 			return false;
@@ -61,19 +81,35 @@ final readonly class Region{
 		return $dx * $dx + $dy * $dy + $dz * $dz <= 1.0;
 	}
 
-	/** @return Generator<int, array{int, int, int}> */
+	/**
+	 * Every position inside the shape, one chunk at a time so edits rarely switch chunks.
+	 *
+	 * @return Generator<int, array{int, int, int}>
+	 */
 	public function positions() : Generator{
+		$cuboid = $this->shape === 'cuboid';
+		foreach($this->columns() as [$x, $z]){
+			for($y = $this->minY; $y <= $this->maxY; ++$y){
+				if($cuboid || $this->contains($x, $y, $z)){
+					yield [$x, $y, $z];
+				}
+			}
+		}
+	}
+
+	/**
+	 * Every X/Z column of the bounding box, in the same chunk order as positions().
+	 *
+	 * @return Generator<int, array{int, int}>
+	 */
+	public function columns() : Generator{
 		for($chunkX = $this->minX >> 4; $chunkX <= $this->maxX >> 4; ++$chunkX){
 			for($chunkZ = $this->minZ >> 4; $chunkZ <= $this->maxZ >> 4; ++$chunkZ){
 				$endX = min($this->maxX, ($chunkX << 4) + 15);
 				$endZ = min($this->maxZ, ($chunkZ << 4) + 15);
 				for($x = max($this->minX, $chunkX << 4); $x <= $endX; ++$x){
 					for($z = max($this->minZ, $chunkZ << 4); $z <= $endZ; ++$z){
-						for($y = $this->minY; $y <= $this->maxY; ++$y){
-							if($this->contains($x, $y, $z)){
-								yield [$x, $y, $z];
-							}
-						}
+						yield [$x, $z];
 					}
 				}
 			}

@@ -48,7 +48,7 @@ final readonly class Pattern{
 		if(count($this->choices) === 1){
 			return $this->choices[0][1] ?? $existing;
 		}
-		$value = (float) hexdec(hash("crc32b", "$seed:$x:$y:$z")) / 4294967296.0 * $this->total;
+		$value = crc32("$seed:$x:$y:$z") / 4294967296.0 * $this->total;
 		foreach($this->choices as [$limit, $state]){
 			if($value < $limit){
 				return $state ?? $existing;

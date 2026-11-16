@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "99a35ab598ac32235243d5a76a7c1fcd",
+    "content-hash": "1632eed9abec9aaffb04bbedd7b1d758",
     "packages": [
         {
             "name": "pocketmine/binaryutils",
@@ -1922,11 +1922,76 @@
                 }
             ],
             "time": "2025-11-17T20:03:58+00:00"
+        },
+        {
+            "name": "trixnew/vow",
+            "version": "dev-main",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/TrixNEW/Vow.git",
+                "reference": "200560c381de1e06a6c4d2a6fa8f52393e2e1312"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/TrixNEW/Vow/zipball/200560c381de1e06a6c4d2a6fa8f52393e2e1312",
+                "reference": "200560c381de1e06a6c4d2a6fa8f52393e2e1312",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-strict-rules": "^2.0",
+                "phpunit/phpunit": "^12.0"
+            },
+            "default-branch": true,
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Vow\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Vow\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit"
+                ],
+                "analyse": [
+                    "phpstan analyse --memory-limit=1G"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Trix"
+                }
+            ],
+            "description": "Fast, synchronous, strongly typed promises for PHP 8.4",
+            "keywords": [
+                "async",
+                "deferred",
+                "fiber",
+                "promise"
+            ],
+            "support": {
+                "source": "https://github.com/TrixNEW/Vow/tree/main",
+                "issues": "https://github.com/TrixNEW/Vow/issues"
+            },
+            "time": "2026-11-08T20:15:07+00:00"
         }
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {},
+    "stability-flags": {
+        "trixnew/vow": 20
+    },
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
