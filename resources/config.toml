@@ -1,20 +1,25 @@
-# Maximum work units per job; multi-pass operations can visit a block more than once.
-maxBlocks = 2000000
-# Global queue limit. Each player can have one active edit.
-maxJobs = 16
-# Main-thread editor budget in microseconds per tick (2000 = 2 ms).
-# Individual world updates and later block physics can exceed this budget.
-budgetMicros = 2000
-# Additional cap on work units processed each tick, shared fairly between jobs.
-blocksPerTick = 2048
-# Shared undo/redo memory limit in bytes (67108864 = 64 MiB).
-historyBytes = 67108864
-# Maximum retained entries in each player's undo/redo stack for a world.
-# History is discarded on disconnect, world unload or plugin shutdown.
-historyEntries = 15
-# Maximum blocks in a clipboard or smoothing snapshot.
-clipboardBlocks = 500000
-# Dedicated schematic workers (1-4), started on demand and sleeping when idle.
+config-version = 2
+
+[editing]
+# Main-thread time shared by all edits each tick, in microseconds (2000 = 2 ms of a 50 ms tick).
+budget-micros = 2000
+# Largest operation in visited blocks. Cut, move and smooth visit some blocks more than once.
+max-blocks = 2000000
+# Operations queued across all players. Each player runs one at a time.
+max-jobs = 16
+
+[history]
+# Undo and redo memory shared by all players, in bytes (64 MiB). Oldest steps go first.
+memory = 67108864
+# Undo steps kept per player and world. History ends on disconnect, world unload or restart.
+entries = 15
+
+[clipboard]
+# Largest clipboard, smoothing snapshot or schematic, in blocks.
+max-blocks = 500000
+# Clipboard memory shared by all players, in bytes (64 MiB).
+memory = 67108864
+
+[schematics]
+# Threads for schematic files (1-4), started on demand.
 workers = 1
-# Shared memory limit for player clipboards and reserved replacements, in bytes.
-clipboardBytes = 67108864

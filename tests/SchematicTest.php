@@ -13,6 +13,7 @@ use pocketmine\nbt\BigEndianNbtSerializer;
 use pocketmine\nbt\LittleEndianNbtSerializer;
 use pocketmine\nbt\NBT;
 use pocketmine\nbt\TreeRoot;
+use pocketmine\nbt\tag\ByteTag;
 use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\nbt\tag\IntTag;
 use pocketmine\nbt\tag\ListTag;
@@ -194,5 +195,52 @@ final class SchematicTest extends TestCase{
 		}catch(UnexpectedValueException){
 			self::assertTrue(true);
 		}
+	}
+
+	public function testLargeMcstructuresAvoidPerBlockTagsAndStayWithinTheBlockLimit() : void{
+		$codec = new SchematicCodec(maxBlocks: 262144);
+		$palette = [
+			CompoundTag::create()->setString("name", "minecraft:air")->setTag("states", CompoundTag::create()),
+			CompoundTag::create()->setString("name", "minecraft:stone")->setTag("states", CompoundTag::create())
+		];
+		$count = 64 * 64 * 64;
+		$states = str_repeat(pack("V*", 0, 1, 1, 0), $count / 4);
+		$data = new SchematicData(64, 64, 64, $states, ["minecraft:air", "minecraft:stone"], [0, 0, 0], format: "mcstructure", bedrockPalette: $palette, formatVersion: 1);
+		$before = memory_get_usage();
+		$bytes = $codec->encode($data, "mcstructure");
+		$copy = $codec->decode($bytes, "mcstructure");
+		// 262,144 blocks would be about 524,288 tag objects through the generic NBT reader.
+		self::assertLessThan(16 * 1048576, memory_get_peak_usage() - $before);
+		self::assertSame($states, $copy->states);
+		$this->assertRejected(fn() => (new SchematicCodec(maxBlocks: $count - 1))->decode($bytes, "mcstructure"));
+	}
+
+	public function testMalformedRawBlockLayersAreRejected() : void{
+		$codec = new SchematicCodec();
+		$palette = [CompoundTag::create()->setString("name", "minecraft:air")->setTag("states", CompoundTag::create())];
+		$bytes = $codec->encode(new SchematicData(2, 1, 1, pack("V*", 0, 0), ["minecraft:air"], format: "mcstructure", bedrockPalette: $palette, formatVersion: 1), "mcstructure");
+		$offset = 0;
+		$root = (new LittleEndianNbtSerializer())->read($bytes, $offset)->mustGetCompoundTag();
+		$variants = [
+			"missing palette index" => new ListTag([new ListTag([new IntTag(0), new IntTag(-1)], NBT::TAG_Int), new ListTag([new IntTag(-1), new IntTag(-1)], NBT::TAG_Int)], NBT::TAG_List),
+			"short primary layer" => new ListTag([new ListTag([new IntTag(0)], NBT::TAG_Int), new ListTag([new IntTag(-1), new IntTag(-1)], NBT::TAG_Int)], NBT::TAG_List),
+			"one layer" => new ListTag([new ListTag([new IntTag(0), new IntTag(0)], NBT::TAG_Int)], NBT::TAG_List),
+			"wrong element type" => new ListTag([new ListTag([new ByteTag(0), new ByteTag(0)], NBT::TAG_Byte), new ListTag([new ByteTag(-1), new ByteTag(-1)], NBT::TAG_Byte)], NBT::TAG_List),
+			"not a list" => new IntTag(0),
+		];
+		foreach($variants as $name => $layers){
+			$copy = clone $root;
+			$copy->getCompoundTag("structure")?->setTag("block_indices", $layers);
+			$encoded = (new LittleEndianNbtSerializer())->write(new TreeRoot($copy));
+			try{
+				$codec->decode($encoded, "mcstructure");
+				self::fail("Accepted $name");
+			}catch(UnexpectedValueException){
+				$this->addToAssertionCount(1);
+			}
+		}
+		$copy = clone $root;
+		$copy->getCompoundTag("structure")?->removeTag("block_indices");
+		$this->assertRejected(fn() => $codec->decode((new LittleEndianNbtSerializer())->write(new TreeRoot($copy)), "mcstructure"));
 	}
 }

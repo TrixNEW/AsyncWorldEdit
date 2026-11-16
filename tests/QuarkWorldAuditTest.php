@@ -58,26 +58,29 @@ final class QuarkWorldAuditTest extends TestCase{
 
 	public function testWriteRejectsPistonsAndItemBearingTilesBeforeChunkAccess() : void{
 		$adapter = self::adapter();
+		$adapter->acquire(0, 0);
+		$air = BlockValue::of(\quark\block\VanillaBlocks::AIR()->getStateId());
 		$unsafe = self::states(static fn(Block $block) : bool => $block instanceof Piston || $block instanceof PistonArmCollision || self::isItemTile($block->getIdInfo()->getTileClass()));
 		self::assertNotEmpty($unsafe);
 		foreach($unsafe as $state){
 			try{
-				$adapter->write(0, 64, 0, new BlockValue($state));
+				$adapter->write(0, 64, 0, $air, new BlockValue($state));
 				self::fail('Unsafe state was writable: ' . $state);
 			}catch(\InvalidArgumentException $e){
 				self::assertStringContainsString('not supported by async edits', $e->getMessage());
 			}
 		}
+		$adapter->release();
 	}
 
 	public function testSafeSignTilesRemainEditable() : void{
 		$adapter = self::adapter();
 		$signState = self::firstState(static fn(Block $block) : bool => $block instanceof BaseSign);
 		try{
-			$adapter->write(0, 64, 0, new BlockValue($signState));
+			$adapter->write(0, 64, 0, BlockValue::of(\quark\block\VanillaBlocks::AIR()->getStateId()), new BlockValue($signState));
 			self::fail('Expected a missing acquired chunk');
 		}catch(\LogicException $e){
-			self::assertStringContainsString('Acquire the target loaded chunk', $e->getMessage());
+			self::assertStringContainsString('Acquire the target chunk', $e->getMessage());
 		}
 	}
 
@@ -86,7 +89,7 @@ final class QuarkWorldAuditTest extends TestCase{
 		$chunk = new Chunk([],true); $chunk->setBlockStateId(0,64,0,$arm);
 		$adapter = new QuarkWorld(self::world($chunk)); $adapter->acquire(0,0);
 		try{
-			try{ $adapter->write(0,64,0,new BlockValue(\quark\block\VanillaBlocks::AIR()->getStateId())); self::fail('Existing piston arm was removed'); }
+			try{ $adapter->write(0,64,0,new BlockValue($arm),new BlockValue(\quark\block\VanillaBlocks::AIR()->getStateId())); self::fail('Existing piston arm was removed'); }
 			catch(\InvalidArgumentException){ self::assertSame($arm,$chunk->getBlockStateId(0,64,0)); }
 		}finally{ $adapter->release(); }
 	}

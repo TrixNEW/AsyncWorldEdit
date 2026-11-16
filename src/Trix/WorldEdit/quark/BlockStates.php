@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Trix\WorldEdit\quark;
 
 use pocketmine\nbt\tag\ByteTag;
+use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\nbt\tag\IntTag;
 use pocketmine\nbt\tag\StringTag;
 use pocketmine\nbt\tag\Tag;
@@ -22,6 +23,10 @@ use quark\item\StringToItemParser;
 use quark\math\Facing;
 
 final class BlockStates{
+	/** @var array<int, bool> */
+	private array $solid = [];
+	private ?int $air = null;
+
 	public function resolve(string $expression) : int{
 		if(strlen($expression) > 512 || !preg_match('/^([a-zA-Z0-9_.:-]+)(?:\[(.*)\])?$/sD', $expression, $match)){
 			throw new \InvalidArgumentException("Invalid Bedrock block state: $expression");
@@ -79,11 +84,17 @@ final class BlockStates{
 	}
 
 	public function solid(int $state) : bool{
-		return RuntimeBlockStateRegistry::getInstance()->fromStateId($this->checkedState($state))->isSolid();
+		// Masks test every visited block, and fromStateId() clones a block each time.
+		return $this->solid[$state] ??= RuntimeBlockStateRegistry::getInstance()->fromStateId($this->checkedState($state))->isSolid();
 	}
 
 	public function air() : int{
-		return $this->checkedState(\quark\block\VanillaBlocks::AIR()->getStateId());
+		return $this->air ??= $this->checkedState(\quark\block\VanillaBlocks::AIR()->getStateId());
+	}
+
+	/** Typed Bedrock state for mcstructure palettes. */
+	public function vanillaTag(int $state) : CompoundTag{
+		return GlobalBlockStateHandlers::getSerializer()->serialize($this->checkedState($state))->toVanillaNbt();
 	}
 
 	public function transform(int $state, int $turns, bool $flipX, bool $flipY, bool $flipZ) : int{

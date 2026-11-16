@@ -7,6 +7,8 @@ parameters:
 		- src/Trix/WorldEdit/clipboard
 		- src/Trix/WorldEdit/engine
 		- src/Trix/WorldEdit/schematic
+	scanFiles:
+		- tools/stubs/bedwire.php
 	tmpDir: .phpstan-cache/core
 	treatPhpDocTypesAsCertain: false
 	rememberPossiblyImpureFunctionValues: false
