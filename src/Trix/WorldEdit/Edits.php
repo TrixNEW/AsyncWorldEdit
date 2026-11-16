@@ -121,7 +121,7 @@ final class Edits{
 	public function count(Player $player, ?Mask $mask, bool $distribution) : void{
 		$region = $this->selection($player);
 		$world = $this->world($player);
-		$this->submit($player, $world, Operations::distribution($world, $region, $mask), $region->volume(), $region, then: function(Job $job) use ($player, $distribution) : void{
+		$this->submit($player, $world, Operations::distribution($world, $region, $mask), $region->volume(), null, then:function(Job $job) use ($player, $distribution) : void{
 			if($job->status !== JobStatus::Completed || !is_array($job->result) || !$player->isConnected()){
 				return;
 			}
@@ -142,9 +142,10 @@ final class Edits{
 		$steps = ClipboardOperations::capture($world, $region, self::point($player->getPosition()), $this->snapshotLimit($region), $cut, $this->states->air(), $session->mask, fn(Clipboard $clipboard) => $this->sessions->hold($session, $clipboard));
 		$this->submit($player, $world, $steps, $region->volume() * ($cut ? 2 : 1), $region, then: function(Job $job) use ($session) : void{
 			try{
-				// A conflicted cut left some blocks in place, but the clipboard was captured before any were removed.
-				if(($job->status === JobStatus::Completed || $job->status === JobStatus::Conflicted) && $job->result instanceof Clipboard){
-					$this->sessions->setClipboard($session, $job->result);
+				// The clipboard is held before a cut removes anything, so keep it whenever blocks were removed.
+				$clipboard = $job->result instanceof Clipboard ? $job->result : $session->pending;
+				if($clipboard !== null && ($job->status === JobStatus::Completed || $job->status === JobStatus::Conflicted || $job->changed > 0)){
+					$this->sessions->setClipboard($session, $clipboard);
 				}
 			}finally{
 				$this->sessions->release($session);
