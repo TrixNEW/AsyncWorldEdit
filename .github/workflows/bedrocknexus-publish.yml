@@ -45,12 +45,36 @@ jobs:
         if: hashFiles('composer.json') != ''
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Build plugin
-        run: composer build
+      - name: Download Pharynx
+        run: |
+          curl -fL \
+            https://github.com/BedrockNexus/pharynx/releases/latest/download/pharynx.phar \
+            -o "$RUNNER_TEMP/pharynx.phar"
+
+      - name: Build plugin with Pharynx
+        run: |
+          mkdir -p dist
+
+          BUILD_ARGS=(
+            -s "src"
+          )
+
+          if [[ -d resources ]]; then
+            BUILD_ARGS+=(-f "resources:resources")
+          fi
+
+          if [[ -f composer.json ]]; then
+            BUILD_ARGS+=(-c)
+          fi
+
+          php "$RUNNER_TEMP/pharynx.phar" "${BUILD_ARGS[@]}"
+
+          test -s output.phar
+          mv output.phar "dist/AsyncWorldEdit.phar"
 
       - name: Upload plugin for build selection
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: plugin-package
-          path: 'build/AsyncWorldEdit.phar'
+          path: 'dist/AsyncWorldEdit.phar'
           if-no-files-found: error
