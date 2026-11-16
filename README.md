@@ -2,11 +2,16 @@
 
 World editing for **Quark 6 / PHP 8.4**. Chunk-ordered edits run within a configurable tick budget; schematic I/O uses dedicated workers. Includes selection wands and particle outlines. Scheduling stops when idle.
 
-## Install
+## Permissions
 
-Run `composer install` and `composer build`. Place `build/AsyncWorldEdit.phar` in Quark's `plugins` directory and restart. Settings are generated in the plugin's `config.toml`.
+Permissions default to operators:
 
-Permissions default to operators: `asyncworldedit.selection`, `.edit`, `.clipboard`, `.history`, `.schematic`, and `.brush`.
+- `asyncworldedit.selection`
+- `asyncworldedit.edit`
+- `asyncworldedit.clipboard`
+- `asyncworldedit.history`
+- `asyncworldedit.schematic`
+- `asyncworldedit.brush`
 
 ## Commands
 

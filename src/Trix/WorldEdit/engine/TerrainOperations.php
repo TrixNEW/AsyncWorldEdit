@@ -69,7 +69,7 @@ final class TerrainOperations{
 	}
 
 	/**
-	 * A 3x3 height average preserves caves below the surface; at most twice the volume is visited.
+	 * A 3x3 height average preserves caves below the surface.
 	 * @return Generator<int, array{int, int, int, BlockValue, BlockValue}|null>
 	 */
 	public static function smooth(WorldAccess $world, Region $region, int $air = 0, int $maxBlocks = 500000) : Generator{

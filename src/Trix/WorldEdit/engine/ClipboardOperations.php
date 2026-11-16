@@ -14,7 +14,6 @@ use InvalidArgumentException;
 final class ClipboardOperations{
 
 	/**
-	 * Copy visits the bounding volume once; cut visits it at most twice.
 	 * @param array{int, int, int} $pivot
 	 * @param Closure(Clipboard): void $result
 	 * @param Closure(Clipboard): void|null $prepared
