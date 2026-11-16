@@ -41,26 +41,10 @@ final class ChangeSet{
 		}
 		$this->records .= pack('V5', $x, $y, $z, $before->state, $after->state);
 		if($before->nbt !== null || $after->nbt !== null){
-			$this->setTiles($this->count, $before->nbt, $after->nbt);
+			$this->tiles[$this->count] = [$before->nbt, $after->nbt];
+			$this->tileBytes += strlen($before->nbt ?? '') + strlen($after->nbt ?? '') + self::TILE_OVERHEAD;
 		}
 		++$this->count;
-	}
-
-	public function updateLastAfter(BlockValue $value) : void{
-		if($this->records === ''){
-			throw new \LogicException('History is empty');
-		}
-		$this->records = substr_replace($this->records, pack('V', $value->state), -4);
-		$index = $this->count - 1;
-		$this->setTiles($index, $this->tiles[$index][0] ?? null, $value->nbt);
-	}
-
-	public function removeLast() : void{
-		if($this->records === ''){
-			throw new \LogicException('History is empty');
-		}
-		$this->records = substr($this->records, 0, -self::RECORD);
-		$this->setTiles(--$this->count, null, null);
 	}
 
 	public function count() : int{
@@ -113,15 +97,4 @@ final class ChangeSet{
 		$this->records = '';
 	}
 
-	private function setTiles(int $index, ?string $before, ?string $after) : void{
-		$old = $this->tiles[$index] ?? null;
-		if($old !== null){
-			$this->tileBytes -= strlen($old[0] ?? '') + strlen($old[1] ?? '') + self::TILE_OVERHEAD;
-			unset($this->tiles[$index]);
-		}
-		if($before !== null || $after !== null){
-			$this->tiles[$index] = [$before, $after];
-			$this->tileBytes += strlen($before ?? '') + strlen($after ?? '') + self::TILE_OVERHEAD;
-		}
-	}
 }

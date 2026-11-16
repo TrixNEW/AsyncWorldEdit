@@ -44,7 +44,11 @@ final class StressTest extends TestCase{
 			$editor->tick(8);
 			foreach($jobs as $i => $job){
 				$editor->forget((string) $i);
-				self::assertTrue($job->isFinished());
+			}
+			// Departed owners' edits run to completion so no half-applied change is left without history.
+			foreach($jobs as $job){
+				EditorTest::settle($editor, $job);
+				self::assertSame(16, $job->changed);
 			}
 			self::assertSame(0, $editor->historyBytes());
 			self::assertSame(0, $world->pins);

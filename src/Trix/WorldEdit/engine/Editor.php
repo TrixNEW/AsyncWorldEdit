@@ -221,47 +221,35 @@ final class Editor{
 	}
 
 	private function apply(Job $job, int $x, int $y, int $z, BlockValue $expected, BlockValue $value) : void{
-		// Record first, so a write that fails halfway still leaves the block undoable.
-		$job->history->append($x, $y, $z, $expected, $value);
 		try{
 			$stored = $job->world->write($x, $y, $z, $expected, $value);
 		}catch(\Throwable $e){
+			// A write that failed halfway can still have changed the block; keep that undoable.
 			try{
-				$actual = $job->world->read($x, $y, $z);
+				$stored = $job->world->read($x, $y, $z);
 			}catch(\Throwable){
-				// Keep the record: undoing a block that never changed only reports a conflict.
-				++$job->changed;
-				throw $e;
+				// Unknown outcome: undoing a block that never changed only reports a conflict.
+				$stored = $value;
 			}
-			if($actual->equals($expected)){
-				$job->history->removeLast();
-			}else{
-				$job->history->updateLastAfter($actual);
+			if(!$stored->equals($expected)){
+				$job->history->append($x, $y, $z, $expected, $stored);
 				++$job->changed;
 			}
 			throw $e;
 		}
 		if($stored === null){
-			$job->history->removeLast();
 			++$job->conflicts;
 			return;
 		}
-		if($stored !== $value && !$stored->equals($value)){
-			$job->history->updateLastAfter($stored);
-		}
+		$job->history->append($x, $y, $z, $expected, $stored);
 		++$job->changed;
 	}
 
 	public function forget(string $owner) : void{
 		$this->history->forgetOwner($owner);
-		$job = $this->owners[$owner] ?? null;
-		if($job === null){
-			return;
-		}
-		$this->forgotten[$owner] = true;
-		$job->cancel();
-		if(!$this->ticking){
-			$this->finish($job, JobStatus::Cancelled, 'Owner disconnected');
+		if(isset($this->owners[$owner])){
+			// Finish instead of cancelling: nobody could undo half of a move or cut once its owner is gone.
+			$this->forgotten[$owner] = true;
 		}
 	}
 

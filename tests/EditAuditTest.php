@@ -147,9 +147,11 @@ final class EditAuditTest extends TestCase{
 			}
 		});
 		$editor->forget('a');
+		EditorTest::settle($editor, $job);
 		self::assertTrue($blocked);
-		self::assertTrue($job->isFinished());
+		self::assertSame('completed', $job->status->value);
 		self::assertFalse($editor->hasJobs());
+		self::assertSame(0, $editor->historyBytes());
 	}
 
 	public function testUnloadedWorldHistoryCanBeReleasedWithoutRemovingOtherWorlds() : void{

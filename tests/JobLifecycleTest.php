@@ -37,7 +37,7 @@ final class JobLifecycleTest extends TestCase{
 		})();
 		$job = $editor->submit('a', $world, $steps, 1);
 		$editor->tick();
-		self::assertSame('cancelled', $job->status->value);
+		self::assertSame('completed', $job->status->value);
 		self::assertSame(0, $editor->historyBytes());
 	}
 
