@@ -297,7 +297,8 @@ final class Integration extends PluginBase{
 		// Let lighting from the benchmark edits drain before the 30 second functional steps resume.
 		$settle = $this->getServer()->getTick() + 20;
 		yield fn() : bool => $this->getServer()->getTick() >= $settle;
-		$this->stepTimeout = 30;
+		// A million-block edit and its undo leave minutes of lighting work behind.
+		$this->stepTimeout = getenv("AWE_ONLY_MILLION") === "1" ? 300 : 30;
 
 		$persistent = new Region(-17, 100, -17, 16, 101, 16);
 		$expected = $this->snapshot($persistent);
@@ -318,8 +319,12 @@ final class Integration extends PluginBase{
 		$this->access = new QuarkWorld($this->world);
 		for($cx = -2; $cx <= 1; ++$cx){ for($cz = -2; $cz <= 1; ++$cz){ $this->world->loadChunk($cx, $cz); } }
 		$this->check($this->snapshot($persistent) === $expected, "All edited runtime states persist across unload and reload");
-		$shutdown = $this->fill(new Region(-16, 250, -16, 15, 253, 15), "stone", "shutdown");
-		yield static fn() : bool => $shutdown->changed > 0;
+		// Glowstone, because the million-block benchmark leaves this box as stone.
+		$shutdown = $this->fill(new Region(-16, 250, -16, 15, 253, 15), "glowstone", "shutdown");
+		yield static fn() : bool => $shutdown->changed > 0 || $shutdown->isFinished();
+		if($shutdown->isFinished()){
+			throw new \RuntimeException("Shutdown probe ended early: {$shutdown->status->value}: {$shutdown->error}");
+		}
 		$this->editor->shutdown();
 		$this->check($shutdown->isFinished() && $shutdown->status === JobStatus::Cancelled && $this->editor->active("shutdown") === null, "Shutdown cancels active work and settles ownership");
 	}
