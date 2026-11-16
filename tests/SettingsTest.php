@@ -31,7 +31,12 @@ final class SettingsTest extends TestCase{
 	}
 
 	public function testBundledConfigMatchesDefaults() : void{
-		self::assertEquals(new Settings(), Settings::fromConfig(self::parse(self::template())));
+		$settings = Settings::fromConfig(self::parse(self::template()));
+		self::assertEquals(new Settings(), $settings);
+		self::assertSame(5000000, $settings->clipboardBlocks);
+		self::assertSame(2 * $settings->clipboardBlocks, $settings->maxBlocks);
+		self::assertSame(268435456, $settings->historyBytes);
+		self::assertSame(134217728, $settings->clipboardBytes);
 	}
 
 	public function testLegacyFlatConfigKeepsEveryValue() : void{
@@ -56,7 +61,7 @@ final class SettingsTest extends TestCase{
 			['editing' => ['budget-micros' => 50]],
 			['editing' => ['budgetmicros' => 2000]],
 			['history' => ['memory' => '64MiB']],
-			['clipboard' => ['max-blocks' => 3000000]],
+			['editing' => ['max-blocks' => 2000000], 'clipboard' => ['max-blocks' => 3000000]],
 		] as $config){
 			try{
 				Settings::migrate($config, self::template()) ?? Settings::fromConfig($config);

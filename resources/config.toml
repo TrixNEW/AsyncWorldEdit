@@ -1,24 +1,26 @@
+# Do not edit; used for automatic config migrations.
 config-version = 2
 
 [editing]
 # Main-thread time shared by all edits each tick, in microseconds (2000 = 2 ms of a 50 ms tick).
 budget-micros = 2000
 # Largest operation in visited blocks. Cut, move and smooth visit some blocks more than once.
-max-blocks = 2000000
+max-blocks = 10000000
 # Operations queued across all players. Each player runs one at a time.
 max-jobs = 16
 
 [history]
-# Undo and redo memory shared by all players, in bytes (64 MiB). Oldest steps go first.
-memory = 67108864
+# Undo and redo memory shared by all players, in bytes (256 MiB). Oldest steps go first.
+memory = 268435456
 # Undo steps kept per player and world. History ends on disconnect, world unload or restart.
 entries = 15
 
 [clipboard]
 # Largest clipboard, smoothing snapshot or schematic, in blocks.
-max-blocks = 500000
-# Clipboard memory shared by all players, in bytes (64 MiB).
-memory = 67108864
+# File size and NBT limits also apply to schematics.
+max-blocks = 5000000
+# Clipboard memory shared by all players, in bytes (128 MiB); packed states use 4 bytes per block.
+memory = 134217728
 
 [schematics]
 # Threads for schematic files (1-4), started on demand.

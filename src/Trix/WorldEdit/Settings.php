@@ -21,12 +21,12 @@ final readonly class Settings{
 
 	public function __construct(
 		public int $budgetMicros = 2000,
-		public int $maxBlocks = 2000000,
+		public int $maxBlocks = 10000000,
 		public int $maxJobs = 16,
-		public int $historyBytes = 67108864,
+		public int $historyBytes = 268435456,
 		public int $historyEntries = 15,
-		public int $clipboardBlocks = 500000,
-		public int $clipboardBytes = 67108864,
+		public int $clipboardBlocks = 5000000,
+		public int $clipboardBytes = 134217728,
 		public int $workers = 1
 	){
 		foreach([
