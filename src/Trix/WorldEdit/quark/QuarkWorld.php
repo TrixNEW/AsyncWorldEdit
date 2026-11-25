@@ -21,7 +21,6 @@ use quark\block\tile\Spawnable;
 use quark\block\tile\Tile;
 use quark\block\tile\TileFactory;
 use quark\inventory\InventoryHolder;
-use quark\VersionInfo;
 use quark\world\ChunkLoader;
 use quark\world\format\Chunk;
 use quark\world\World;
@@ -34,6 +33,8 @@ final class QuarkWorld implements WorldAccess{
 	private const STATE_CACHE = 1024;
 	private const MAX_TILE_BYTES = 65536;
 	private const ITEM_BEARING = 'Item-bearing and inventory block entities are not supported by async edits because copying them duplicates stored contents';
+	/** Saved data carries a data version under either name: early Quark 6 builds wrote QUARKDataVersion. */
+	private const IGNORED_TILE_KEYS = [Tile::TAG_ID, Tile::TAG_X, Tile::TAG_Y, Tile::TAG_Z, 'PMMPDataVersion', 'QUARKDataVersion'];
 
 	private ?ChunkLoader $loader = null;
 	private ?Chunk $chunk = null;
@@ -209,7 +210,7 @@ final class QuarkWorld implements WorldAccess{
 		}
 		$roundtrip = $tile->saveNBT();
 		foreach($tag as $key => $value){
-			if(!in_array($key, [Tile::TAG_ID, Tile::TAG_X, Tile::TAG_Y, Tile::TAG_Z, VersionInfo::TAG_WORLD_DATA_VERSION], true) && $roundtrip->getTag($key)?->equals($value) !== true){
+			if(!in_array($key, self::IGNORED_TILE_KEYS, true) && $roundtrip->getTag($key)?->equals($value) !== true){
 				throw new \InvalidArgumentException("Unsupported or changed block entity data: $key");
 			}
 		}

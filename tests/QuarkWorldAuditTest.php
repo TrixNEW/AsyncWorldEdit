@@ -15,6 +15,7 @@ use quark\block\RuntimeBlockStateRegistry;
 use quark\block\tile\ItemFrame as ItemFrameTile;
 use quark\block\tile\Jukebox as JukeboxTile;
 use quark\block\tile\Lectern as LecternTile;
+use quark\block\tile\Sign as SignTile;
 use quark\world\ChunkLoader;
 use quark\world\World;
 use quark\world\format\Chunk;
@@ -84,6 +85,22 @@ final class QuarkWorldAuditTest extends TestCase{
 		}catch(\LogicException $e){
 			self::assertStringContainsString('Acquire the target chunk', $e->getMessage());
 		}
+	}
+
+	public function testTileDataSavedUnderEitherDataVersionNameIsAccepted() : void{
+		$sign = self::firstState(static fn(Block $block) : bool => $block instanceof BaseSign);
+		$prepare = new \ReflectionMethod(QuarkWorld::class, 'prepareTile');
+		$encode = new \ReflectionMethod(QuarkWorld::class, 'encodeTile');
+		$saved = (new SignTile())->saveNBT();
+		$saved->removeTag('PMMPDataVersion', 'QUARKDataVersion');
+		foreach(['PMMPDataVersion', 'QUARKDataVersion'] as $name){
+			$tag = (clone $saved)->setLong($name, 1);
+			$prepared = $prepare->invoke(self::adapter(), $sign, SignTile::class, $encode->invoke(null, $tag));
+			self::assertSame(1, $prepared->getLong($name));
+		}
+
+		$this->expectExceptionMessage('Unsupported or changed block entity data: foo');
+		$prepare->invoke(self::adapter(), $sign, SignTile::class, $encode->invoke(null, (clone $saved)->setLong('foo', 1)));
 	}
 
 	public function testDirectWritesCannotRemoveExistingPistonArms() : void{
